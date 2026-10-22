@@ -14,7 +14,7 @@ const mediaInfo = new Map();      // mediaId -> {duration,width,height,error}
 let screens = null;               // Chrome/Edge Window Management API, when granted
 
 let state = loadState();
-let previewMedia = false;   // off by default: the preview shows poster frames, so this window decodes nothing
+let previewMedia = true;    // untick to show poster frames instead (this window then decodes nothing)
 
 // ---------------------------------------------------------------- persistence + sync
 
@@ -618,6 +618,8 @@ function frame() {
     renderer.render(o, state, media);
     drawOverlay(ctx, o, state, overlayCanvas.width / dpr, overlayCanvas.height / dpr, { density: state.meshDensity, handles: true });
     const st = media ? media.stats() : { videos: 0, dropped: 0, errors: 0 };
+    const stills = !previewMedia && C.usedMedia(state, o).size > 0;
+    $('#previewBadge').hidden = !stills;
     $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height} · ${fps} fps · ${frameMs.toFixed(1)} ms (worst ${worstMs.toFixed(0)}) · ${st.videos ? st.videos + ' video' + (st.videos === 1 ? '' : 's') + ' decoding here' : 'poster frames, no decoding here'}` + (st.dropped ? ` · ${st.dropped} dropped` : '') + (st.errors ? ` · ${st.errors} cannot play` : '');
   } else {
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -684,7 +686,11 @@ function longestDuration() {
 function play() {
   const tr = state.transport;
   if (tr.playing) { tr.pausedAt = C.transportTime(tr); tr.playing = false; }
-  else { tr.startedAt = Date.now(); tr.playing = true; }
+  else {
+    tr.startedAt = Date.now(); tr.playing = true;
+    const notSource = state.outputs.flatMap(o => o.surfaces.filter(s => s.visible && s.fill !== 'source' && s.mediaId));
+    if (notSource.length) toast(`${notSource.map(s => s.name).join(', ')}: Show is set to ${notSource[0].fill === 'grid' ? 'Grid' : 'Solid color'}, so no video there. Set Show to Source (or press G).`, 8000);
+  }
   commit(false, { history: false });
 }
 function stop() {
