@@ -41,14 +41,17 @@
         <li>Add a projector, open its window, drag that window onto the projector's display and press <b>F</b>.</li>
         <li>Add a surface and pick a source. Drag its corners onto the real object (in this preview or straight on the projector).</li>
         <li>Curved object? Raise the grid to 3–7 columns/rows and pull the inner points.</li>
+        <li>Camera tab: start the back camera, <b>Calibrate (auto)</b> while the camera sees the projected area, then <b>Trace object</b> and click its four corners. Handles can be dragged on the camera image too.</li>
         <li>Two projectors on one wall? Give each a surface with a crop (Split into 2), overlap them, and set the edge blend on the touching edges.</li>
       </ol>
-      <p><b>Space</b> play/pause · <b>Arrows</b> nudge (Shift = 10px) · <b>Tab</b> next point · <b>Esc</b> deselect<br>
+      <p><b>Space</b> play/pause · <b>Arrows</b> nudge (Shift = 10px) · <b>Tab</b> next point · <b>G</b> source/grid/solid · <b>Esc</b> deselect<br>
       In a projector window: <b>F</b> fullscreen · <b>E</b> handles · <b>T</b> test pattern</p>
     </details>
   </aside>
 
   <section class="center">
+    <div class="tabs"><button type="button" class="active" data-tab="preview">Preview</button><button type="button" data-tab="camera">Camera</button></div>
+    <div id="cameraPanel" class="cameraPanel" hidden></div>
     <div id="previewWrap" class="previewWrap">
       <canvas id="preview"></canvas>
       <canvas id="previewOverlay" tabindex="0"></canvas>

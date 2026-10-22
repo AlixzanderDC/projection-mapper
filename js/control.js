@@ -3,6 +3,7 @@ import * as C from './core.js';
 import { Renderer, drawOverlay } from './render.js';
 import { MediaProvider } from './media.js';
 import { Editor } from './editor.js';
+import { CameraPanel } from './camera.js';
 
 const $ = s => document.querySelector(s);
 const bc = new BroadcastChannel(C.CHANNEL);
@@ -22,6 +23,7 @@ function normalize(raw) {
   s.transport = Object.assign(C.defaultState().transport, raw.transport || {}, { playing: false, pausedAt: 0 });
   s.selection = Object.assign(C.defaultState().selection, raw.selection || {});
   for (const m of s.media) if (!m.persistent) m.missing = true; // blob: URLs die with the page
+  for (const o of s.outputs) for (const sf of o.surfaces) C.upgradeSurface(sf);
   return s;
 }
 
@@ -56,7 +58,7 @@ bc.onmessage = ({ data: msg }) => {
       bc.postMessage({ type: 'state', state });
       break;
     case 'op':
-      if (C.applyOp(state, msg.op)) commit(msg.op.type === 'select' || msg.op.type === 'toggle');
+      if (C.applyOp(state, msg.op)) commit(['select', 'toggle', 'cycleFill'].includes(msg.op.type));
       break;
     case 'status': {
       outputStatus.set(msg.outputId, { ...msg, lastSeen: Date.now() });
@@ -274,7 +276,7 @@ function rebuildLists() {
       ol.append(el('div', { class: 'item surface' + (sel.surfaceId === s.id ? ' selected' : '') + (s.visible ? '' : ' hidden'),
         onclick: () => { state.selection = { outputId: o.id, surfaceId: s.id, point: null }; commit(true); } },
         el('div', { class: 'grow' }, el('div', { class: 'title', text: s.name }),
-          el('div', { class: 'meta', text: `${s.cols}×${s.rows} · ${state.media.find(m => m.id === s.mediaId)?.name ?? 'no source'}` }))));
+          el('div', { class: 'meta', text: `${s.cols}×${s.rows} · ` + (s.fill === 'grid' ? 'grid' : s.fill === 'color' ? `solid ${s.color}` : (state.media.find(m => m.id === s.mediaId)?.name ?? 'no source')) }))));
     }
   }
   $('#showName').value = state.name;
@@ -317,6 +319,7 @@ function outputInspector(o) {
   box.append(field('Name', textInput(o.name, v => { o.name = v; commit(true); })));
   box.append(el('div', { class: 'status', 'data-status-for': o.id, text: statusText(o) }));
   box.append(el('div', { class: 'row' }, btn('Open projector window', () => openOutput(o), 'primary'), btn('Detect displays', detectScreens)));
+  box.append(el('div', { class: 'status', text: o.calib ? `Camera: calibrated (${o.calib.found}/${o.calib.total} dots)` : 'Camera: not calibrated (Camera tab)' }));
   if (screens) {
     const row = el('div', { class: 'row wrap' });
     screens.forEach((sc, i) => row.append(btn(`Open on ${sc.label || 'display ' + (i + 1)} (${sc.width}×${sc.height})`, () => openOutput(o, sc), 'small')));
@@ -353,6 +356,16 @@ function surfaceInspector(o, s) {
   box.append(field('Source', selectInput(s.mediaId ?? '',
     [{ value: '', label: '(none — checkerboard)' }, ...state.media.map(m => ({ value: m.id, label: m.name + (m.missing ? ' (missing)' : '') }))],
     v => { s.mediaId = v || null; commit(true); })));
+  box.append(field('Show', selectInput(s.fill,
+    [{ value: 'source', label: 'Source' }, { value: 'grid', label: 'Grid (for lining up)' }, { value: 'color', label: 'Solid color' }],
+    v => { s.fill = v; commit(true); })));
+  if (s.fill !== 'source') {
+    const col = el('input', { type: 'color', value: s.color });
+    col.addEventListener('input', () => { s.color = col.value; commit(); });
+    box.append(field('Color', col));
+  }
+  if (s.fill === 'grid') box.append(slider('Grid cells', s.gridDiv, 1, 32, 1, v => { s.gridDiv = v; commit(); }, v => `${v}`));
+  box.append(el('p', { class: 'hint', text: 'Press G in either window to cycle Source → Grid → Solid on the selected surface.' }));
   box.append(checkInput('Visible', s.visible, v => { s.visible = v; commit(true); }));
   box.append(checkInput('Lock shape', s.locked, v => { s.locked = v; commit(); }));
   box.append(slider('Opacity', s.opacity, 0, 1, 0.01, v => { s.opacity = v; commit(); }, v => v.toFixed(2)));
@@ -431,7 +444,7 @@ try {
 
 new Editor(overlayCanvas, {
   get: () => ({ state, output: currentOutput() }),
-  send: op => { if (C.applyOp(state, op)) commit(op.type === 'select'); },
+  send: op => { if (C.applyOp(state, op)) commit(op.type === 'select' || op.type === 'cycleFill'); },
 });
 
 function fitPreview() {
@@ -454,8 +467,26 @@ function fitPreview() {
   }
 }
 
+let activeTab = 'preview';
+const camera = new CameraPanel($('#cameraPanel'), {
+  getState: () => state,
+  currentOutput,
+  send: op => { if (C.applyOp(state, op)) commit(op.type === 'select'); },
+  commit,
+  bc,
+  toast,
+});
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  activeTab = b.dataset.tab;
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('active', x === b));
+  $('#cameraPanel').hidden = activeTab !== 'camera';
+  $('#previewWrap').hidden = activeTab !== 'preview';
+  $('#previewWrap').nextElementSibling.hidden = activeTab !== 'preview';
+}));
+
 function frame() {
   if (media) { media.sync(state); media.tick(state.transport); }
+  if (activeTab === 'camera') { camera.draw(); updateTransportUI(); requestAnimationFrame(frame); return; }
   fitPreview();
   const o = currentOutput();
   const ctx = overlayCanvas.getContext('2d');

@@ -18,10 +18,26 @@ uniform int uHasTex;
 uniform vec4 uRect;      // source crop x, y, w, h
 uniform vec4 uFeather;   // l, r, t, b as a fraction of the surface
 uniform float uOpacity;
+uniform int uMode;       // 0 source, 1 grid, 2 solid color
+uniform vec3 uColor;
+uniform float uGridDiv;
 out vec4 outColor;
 void main() {
   vec3 rgb; float a = 1.0;
-  if (uHasTex == 1) {
+  if (uMode == 2) {
+    rgb = uColor;
+  } else if (uMode == 1) {
+    vec2 g = vUV * uGridDiv;
+    vec2 w = fwidth(g) * 1.5;                       // ~1.5px lines whatever the warp
+    vec2 f = abs(fract(g) - 0.5);
+    vec2 l = step(0.5 - w, f);
+    vec2 edge = step(vUV, w / uGridDiv * 2.0) + step(1.0 - w / uGridDiv * 2.0, vUV);
+    float line = max(max(l.x, l.y), max(edge.x, edge.y));
+    vec2 cw = fwidth(vUV) * 2.0;
+    float cross = max(step(abs(vUV.x - 0.5), cw.x), step(abs(vUV.y - 0.5), cw.y));
+    rgb = uColor * max(line, cross);
+    a = max(line, cross) > 0.0 ? 1.0 : 0.25;         // faint fill so the surface reads as a shape
+  } else if (uHasTex == 1) {
     vec4 c = texture(uTex, uRect.xy + vUV * uRect.zw);
     rgb = c.rgb; a = c.a;
   } else {
@@ -67,6 +83,13 @@ void main() {
   outColor = vec4(c * f, 1.0);
 }`;
 
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return [1, 1, 1];
+  const n = parseInt(m[1], 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
 function compile(gl, type, src) {
   const sh = gl.createShader(type);
   gl.shaderSource(sh, src);
@@ -92,7 +115,7 @@ export class Renderer {
     if (!gl) throw new Error('WebGL2 is not available in this browser.');
     this.gl = gl;
     this.canvas = canvas;
-    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity']);
+    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv']);
     this.comp = program(gl, COMP_VS, COMP_FS, ['uScene', 'uRes', 'uBlendW', 'uBlendG', 'uBrightness', 'uGamma']);
 
     this.vao = gl.createVertexArray();
@@ -171,6 +194,11 @@ export class Renderer {
       gl.uniform4f(u.uRect, s.uv.x, s.uv.y, s.uv.w, s.uv.h);
       gl.uniform4f(u.uFeather, s.feather.l, s.feather.r, s.feather.t, s.feather.b);
       gl.uniform1f(u.uOpacity, s.opacity);
+      const mode = s.fill === 'color' ? 2 : s.fill === 'grid' ? 1 : 0;
+      const [cr, cg, cb] = hexToRgb(s.color);
+      gl.uniform1i(u.uMode, mode);
+      gl.uniform3f(u.uColor, cr, cg, cb);
+      gl.uniform1f(u.uGridDiv, Math.max(1, s.gridDiv || 8));
       gl.drawElements(gl.TRIANGLES, mesh.idx.length, gl.UNSIGNED_INT, 0);
     }
     gl.disable(gl.BLEND);

@@ -73,9 +73,22 @@ export function makeSurface(index, mediaId = null) {
     uv: { x: 0, y: 0, w: 1, h: 1 },      // crop of the source
     opacity: 1,
     feather: { l: 0, r: 0, t: 0, b: 0 },  // soft edge, fraction of the surface
+    fill: 'source',                       // 'source' | 'grid' | 'color'
+    color: '#ffffff',                     // used by grid lines and solid fill
+    gridDiv: 8,                           // grid cells across the surface
     visible: true,
     locked: false,
   };
+}
+
+export const FILL_MODES = ['source', 'grid', 'color'];
+
+// Fill in fields added after a show was saved.
+export function upgradeSurface(s) {
+  if (!FILL_MODES.includes(s.fill)) s.fill = 'source';
+  if (typeof s.color !== 'string') s.color = '#ffffff';
+  if (!(s.gridDiv >= 1)) s.gridDiv = 8;
+  return s;
 }
 
 export function findOutput(state, id) {
@@ -304,6 +317,19 @@ export function applyOp(state, op) {
       const f = findSurface(state, op.surfaceId);
       if (!f) return false;
       f.surface.pts = gridPoints(f.surface.cols, f.surface.rows, 0.15);
+      return true;
+    }
+    case 'setFill': {
+      const f = findSurface(state, op.surfaceId);
+      if (!f || !FILL_MODES.includes(op.fill)) return false;
+      f.surface.fill = op.fill;
+      return true;
+    }
+    case 'cycleFill': {
+      const f = findSurface(state, op.surfaceId);
+      if (!f) return false;
+      const s = upgradeSurface(f.surface);
+      s.fill = FILL_MODES[(FILL_MODES.indexOf(s.fill) + 1) % FILL_MODES.length];
       return true;
     }
     case 'toggle': {

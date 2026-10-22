@@ -14,6 +14,7 @@ let state = null;
 let renderer = null;
 let media = null;
 let lastStateAt = 0;
+let calib = null; // {mode:'black'|'marker'|'markers', markers:[{x,y,n}]} while the control window calibrates a camera
 
 try {
   renderer = new Renderer(glCanvas);
@@ -36,6 +37,8 @@ bc.onmessage = ({ data: msg }) => {
     state = msg.state;
     lastStateAt = Date.now();
     if (media) media.sync(state);
+  } else if (msg.type === 'calib' && msg.outputId === id) {
+    calib = msg.mode === 'off' ? null : msg;
   }
 };
 bc.postMessage({ type: 'hello', outputId: id });
@@ -87,6 +90,17 @@ function frame() {
     ctx.clearRect(0, 0, W, H);
     hud.textContent = 'This projector was removed from the show. You can close this window.';
     hud.style.display = '';
+  } else if (calib) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    if (calib.mode !== 'black') {
+      const rad = Math.max(6, Math.min(W, H) * 0.03);
+      for (const m of calib.markers) {
+        ctx.beginPath(); ctx.arc(m.x * W, m.y * H, rad, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+        if (calib.mode === 'markers') { ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(rad * 1.6)}px system-ui`; ctx.textBaseline = 'middle'; ctx.fillText(String(m.n), m.x * W + rad * 1.4, m.y * H); }
+      }
+    }
+    hud.style.display = 'none';
   } else {
     media.tick(state.transport);
     renderer.render(o, state, media);

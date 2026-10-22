@@ -34,6 +34,7 @@ Your show autosaves in the browser. **Save as…** writes a `.pmap.json` file yo
 | **Projector** | One output window. Its resolution follows the window once it is open. Has edge blend, brightness, gamma, a test pattern and a handle overlay you can hide. |
 | **Surface** | One patch of a source drawn onto something in the room. A projector can have any number, layered in order. |
 | **Source** | A video or image from the media bin. Several surfaces (on any projector) can share one source. |
+| **Show** | What a surface displays: the **Source**, a **Grid** (white lines over a faint fill, for lining up), or a **Solid color** (to see exactly what the surface covers). Press **G** to cycle. |
 | **Crop** | The part of the source a surface shows. "Split into 2, piece 1" shows the left half — that is how one video spans two projectors. |
 
 ## Flat surfaces
@@ -44,7 +45,19 @@ Keep the default 2×2 grid. Drag the four corners onto the corners of the wall, 
 
 Set the warp grid to more columns and rows (3–7 is usually enough) and pull the inner points so the grid lines follow the curve. Interior points move the image smoothly between them (Catmull-Rom), and the image passes exactly through every point you place. Changing the grid size later keeps the shape you already have. **Straighten** removes all curvature but keeps the corners.
 
-Tip: turn on the projector's **test pattern** or hide the source first, and shape the grid using the white wireframe before you look at the content.
+Tip: set the surface to **Grid** (or press **G**) and shape it against the real object first; switch back to **Source** when the lines sit where they should.
+
+## Mapping with the camera
+
+The **Camera** tab uses your laptop's back camera (or any webcam) to find the object for you.
+
+1. Select the projector in the left column and open its window on the projector.
+2. In the Camera tab, **Start camera**. Point it so it sees the whole area the projector lights. Dim the room.
+3. **Calibrate (auto)**: the projector flashes 16 dots one at a time and the camera finds them. Takes about ten seconds; keep the camera still. If it finds fewer than four, use **Calibrate (click dots)**: all dots are projected with numbers and you click each one in the camera image.
+4. **Trace object**: click the object's four corners in the camera image (top-left, top-right, bottom-right, bottom-left). A surface appears on it, shown as a grid so you can check the fit on the real object.
+5. Fine-tune by dragging the handles on the camera image, in the preview, or on the projector itself. Then set **Show** to Source.
+
+The calibration is a camera→projector mapping fitted through the found dots, with a local correction so curved walls still land on their dots. Accuracy depends on the camera staying where it was during calibration; move it and calibrate again. Calibration is saved with the show.
 
 ## Multiple projectors on one wall
 
@@ -57,7 +70,7 @@ A single video decodes once per window, so two projectors showing one 4K file me
 
 ## Keys
 
-Control window: **Space** play/pause · **Arrows** nudge the selected point or surface by 1px (**Shift** = 10px) · **Tab** / **Shift+Tab** next/previous point · **Esc** deselect.
+Control window: **Space** play/pause · **Arrows** nudge the selected point or surface by 1px (**Shift** = 10px) · **Tab** / **Shift+Tab** next/previous point · **G** cycle Source/Grid/Solid on the selected surface · **Esc** deselect.
 
 Projector window: **F** or double-click = fullscreen · **E** show/hide handles · **T** test pattern · same arrow/Tab editing as above. Hide the handles (E) before the show; the cursor hides with them.
 
@@ -80,6 +93,7 @@ Projector window: **F** or double-click = fullscreen · **E** show/hide handles 
 
 ## Limits and ideas for later
 
+- The camera traces four corners (a quad). For a curved object, trace the quad, then raise the grid and pull the inner points on the camera image.
 - No DMX/OSC/MIDI triggering yet — the transport is play/pause/seek.
 - One cue (one set of sources) per show file. Make a show file per look and **Open…** between them.
 - Masks are rectangular with soft edges; freeform polygon masks are a natural next step.

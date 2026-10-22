@@ -109,6 +109,9 @@ export class Editor {
       i = (i + (e.shiftKey ? -1 : 1) + n) % n;
       this.hooks.send({ type: 'select', outputId: output.id, surfaceId: s.id, point: { r: Math.floor(i / s.cols), c: i % s.cols } });
       e.preventDefault();
+    } else if (e.key === 'g' || e.key === 'G') {
+      this.hooks.send({ type: 'cycleFill', surfaceId: s.id });
+      e.preventDefault();
     } else if (e.key === 'Escape') {
       this.hooks.send({ type: 'select', outputId: output.id, surfaceId: sel.point ? s.id : null, point: null });
       e.preventDefault();
