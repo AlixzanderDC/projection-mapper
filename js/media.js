@@ -11,10 +11,12 @@ export class MediaProvider {
     this.onError = null;   // (id)
   }
 
-  // Keep elements in step with state.media.
-  sync(state) {
+  // Keep elements in step with state.media. `keep(mediaId)` says which files this
+  // window actually needs; everything else is unloaded so it costs no decoding.
+  sync(state, keep = () => true) {
     const seen = new Set();
     for (const m of state.media) {
+      if (!keep(m.id)) continue;
       seen.add(m.id);
       let it = this.items.get(m.id);
       if (it && it.url !== m.url) { this.remove(m.id); it = null; }

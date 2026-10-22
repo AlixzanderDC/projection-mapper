@@ -91,6 +91,13 @@ export function upgradeSurface(s) {
   return s;
 }
 
+// Media ids used by visible surfaces of one output (or of every output when null).
+export function usedMedia(state, output = null) {
+  const ids = new Set();
+  for (const o of output ? [output] : state.outputs) for (const s of o.surfaces) if (s.visible && s.mediaId && s.fill !== 'color') ids.add(s.mediaId);
+  return ids;
+}
+
 export function findOutput(state, id) {
   return state.outputs.find(o => o.id === id) || null;
 }

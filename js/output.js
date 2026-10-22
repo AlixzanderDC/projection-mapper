@@ -24,6 +24,8 @@ try {
 }
 
 const output = () => (state ? C.findOutput(state, id) : null);
+const usedHere = () => { const ids = C.usedMedia(state, output()); return mid => ids.has(mid); };
+let fpsCount = 0, fpsAt = performance.now(), fps = 0;
 
 function send(op) {
   if (state) C.applyOp(state, op);
@@ -36,7 +38,7 @@ bc.onmessage = ({ data: msg }) => {
   if (msg.type === 'state') {
     state = msg.state;
     lastStateAt = Date.now();
-    if (media) media.sync(state);
+    if (media) media.sync(state, usedHere());
   } else if (msg.type === 'calib' && msg.outputId === id) {
     calib = msg.mode === 'off' ? null : msg;
   }
@@ -102,13 +104,14 @@ function frame() {
     }
     hud.style.display = 'none';
   } else {
+    if (++fpsCount >= 30) { const now = performance.now(); fps = Math.round(fpsCount * 1000 / (now - fpsAt)); fpsCount = 0; fpsAt = now; }
     media.tick(state.transport);
     renderer.render(o, state, media);
     drawOverlay(ctx, o, state, W, H, { density: state.meshDensity, handles: o.editOverlay });
     document.title = o.name;
     if (o.editOverlay) {
       hud.style.display = '';
-      hud.textContent = `${o.name} · ${glCanvas.width}×${glCanvas.height}` + (document.fullscreenElement ? '' : ' · F or double-click = fullscreen') + ' · E = hide handles · T = test pattern · drag points, arrows nudge';
+      hud.textContent = `${o.name} · ${glCanvas.width}×${glCanvas.height} · ${fps} fps` + (document.fullscreenElement ? '' : ' · F or double-click = fullscreen') + ' · E = hide handles · T = test pattern · drag points, arrows nudge';
     } else {
       hud.style.display = 'none';
     }

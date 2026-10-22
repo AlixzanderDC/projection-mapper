@@ -49,6 +49,7 @@ function broadcast() {
 function commit(rebuild = false) {
   save();
   broadcast();
+  probeMedia();
   if (rebuild) { rebuildLists(); rebuildInspector(); }
 }
 
@@ -438,6 +439,27 @@ try {
   media = new MediaProvider(renderer.gl, { audio: true });
   media.onMeta = (id, info) => { mediaInfo.set(id, { ...info, error: false }); rebuildLists(); };
   media.onError = id => { mediaInfo.set(id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); };
+
+// Cheap metadata probe (no decoding) for files the control window is not playing.
+const probed = new Set();
+function probeMedia() {
+  for (const m of state.media) {
+    if (m.missing || probed.has(m.id) || mediaInfo.has(m.id)) continue;
+    probed.add(m.id);
+    if (m.kind === 'video') {
+      const v = document.createElement('video');
+      v.preload = 'metadata'; v.muted = true;
+      v.addEventListener('loadedmetadata', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: false }); rebuildLists(); } v.removeAttribute('src'); v.load(); });
+      v.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
+      v.src = m.url;
+    } else {
+      const i = new Image();
+      i.addEventListener('load', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: i.naturalWidth, height: i.naturalHeight, error: false }); rebuildLists(); } });
+      i.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
+      i.src = m.url;
+    }
+  }
+}
 } catch (e) {
   toast(e.message, 60000);
 }
@@ -484,8 +506,20 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
   $('#previewWrap').nextElementSibling.hidden = activeTab !== 'preview';
 }));
 
+// The control window only decodes what it shows in the preview, plus whatever is
+// audible when the audio slider is up. Preview off + audio at 0 = no decoding here.
+function usedInControl() {
+  const o = currentOutput();
+  const ids = new Set();
+  if (previewMedia && o) for (const id of C.usedMedia(state, o)) ids.add(id);
+  if (state.transport.volume > 0) for (const id of C.usedMedia(state)) ids.add(id);
+  return mid => ids.has(mid);
+}
+let fpsCount = 0, fpsAt = performance.now(), fps = 0;
+
 function frame() {
-  if (media) { media.sync(state); media.tick(state.transport); }
+  if (++fpsCount >= 30) { const now = performance.now(); fps = Math.round(fpsCount * 1000 / (now - fpsAt)); fpsCount = 0; fpsAt = now; }
+  if (media) { media.sync(state, usedInControl()); media.tick(state.transport); }
   if (activeTab === 'camera') { camera.draw(); updateTransportUI(); requestAnimationFrame(frame); return; }
   fitPreview();
   const o = currentOutput();
@@ -495,7 +529,7 @@ function frame() {
   if (o && renderer) {
     renderer.render(o, state, previewMedia ? media : null);
     drawOverlay(ctx, o, state, overlayCanvas.width / dpr, overlayCanvas.height / dpr, { density: state.meshDensity, handles: true });
-    $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height}` + (state.selection.surfaceId ? ' · drag points, arrows nudge (shift = 10px), Tab cycles points' : ' · click a surface to edit it');
+    $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height} · ${fps} fps` + (state.selection.surfaceId ? ' · drag points, arrows nudge (shift = 10px), Tab cycles points' : ' · click a surface to edit it');
   } else {
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     $('#previewInfo').textContent = '';
@@ -599,4 +633,5 @@ if (location.protocol === 'file:') toast('Open this through serve.ps1 (http://12
 rebuildLists();
 rebuildInspector();
 broadcast();
+probeMedia();
 requestAnimationFrame(frame);

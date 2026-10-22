@@ -80,6 +80,7 @@ Projector window: **F** or double-click = fullscreen · **E** show/hide handles 
 - **Add files…** loads content for this session only (it is not copied anywhere); after a reload those entries show as *missing* until you add the same files again.
 - Video: MP4 (H.264) and WebM (VP9/AV1) play in every browser. HEVC/H.265 plays in Chrome and Edge but not Firefox. ProRes and other editing codecs do not play in browsers — export a delivery file.
 - Audio plays from the control window only; projector windows are muted.
+- Each window decodes only the files its surfaces show. The control window also decodes what the preview shows, plus anything audible. On a slow machine, untick **Preview video here** and drop **Audio** to 0 while running a show so the control window does no decoding at all.
 - Show file: `*.pmap.json`, plain JSON. Media are referenced by path (`media/clip.mp4`), so a show plus its `media/` folder is portable.
 
 ## How it works
