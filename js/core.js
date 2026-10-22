@@ -27,6 +27,7 @@ export function defaultState() {
     version: 1,
     name: 'Untitled show',
     meshDensity: 48,            // subdivisions per surface edge (quality of curves)
+    videoPath: 'direct',        // 'direct' | 'canvas': how video frames reach WebGL (see test-video.html)
     media: [],                  // {id, name, url, kind, persistent, missing?}
     outputs: [],                // see makeOutput
     transport: { playing: false, startedAt: 0, pausedAt: 0, rate: 1, loop: true, volume: 0 },

@@ -109,6 +109,7 @@ function frame() {
     hud.style.display = 'none';
   } else {
     if (++fpsCount >= 30) { const now = performance.now(); fps = Math.round(fpsCount * 1000 / (now - fpsAt)); fpsCount = 0; fpsAt = now; }
+    media.uploadVia = state.videoPath === 'canvas' ? 'canvas' : 'direct';
     media.tick(state.transport);
     renderer.render(o, state, media);
     drawOverlay(ctx, o, state, W, H, { density: state.meshDensity, handles: o.editOverlay });

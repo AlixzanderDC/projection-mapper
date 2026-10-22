@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Video path test</title>
+<style>
+  body { margin: 0; padding: 16px; background: #121316; color: #e8e9ec; font: 14px system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; margin-top: 12px; }
+  .box { background: #1b1d22; border: 1px solid #2f333b; border-radius: 8px; padding: 10px; }
+  .box h2 { font-size: 14px; margin: 0 0 6px; color: #9aa0ab; }
+  .box video, .box canvas { width: 320px; height: 180px; background: #000; display: block; }
+  .verdict { font-size: 22px; font-weight: 700; margin: 8px 0 4px; }
+  .ok { color: #3ddc84; } .bad { color: #ff5c5c; } .wait { color: #ffb020; }
+  .meta { color: #9aa0ab; font-size: 12px; white-space: pre-wrap; }
+  button { background: #0f6f7c; color: #fff; border: 1px solid #138a9a; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }
+  #report { margin-top: 14px; }
+</style>
+</head>
+<body>
+<h1>Video path test</h1>
+<div>Plays <code id="file"></code> five different ways. Each box says MOVING or FROZEN after a few seconds.
+  <button id="start">Start</button> <button id="copy">Copy report</button> <span id="copied"></span></div>
+<div class="grid">
+  <div class="box"><h2>A. Plain &lt;video&gt; element</h2><video id="v" muted loop playsinline controls></video><div class="verdict wait" id="vA">waiting</div><div class="meta" id="mA"></div></div>
+  <div class="box"><h2>B. WebGL texImage2D(video) — what the app uses</h2><canvas id="cB" width="320" height="180"></canvas><div class="verdict wait" id="vB">waiting</div><div class="meta" id="mB"></div></div>
+  <div class="box"><h2>C. 2D canvas drawImage(video)</h2><canvas id="cC" width="320" height="180"></canvas><div class="verdict wait" id="vC">waiting</div><div class="meta" id="mC"></div></div>
+  <div class="box"><h2>D. WebGL texImage2D(2D canvas)</h2><canvas id="cD" width="320" height="180"></canvas><div class="verdict wait" id="vD">waiting</div><div class="meta" id="mD"></div></div>
+  <div class="box"><h2>E. WebGL from requestVideoFrameCallback + ImageBitmap</h2><canvas id="cE" width="320" height="180"></canvas><div class="verdict wait" id="vE">waiting</div><div class="meta" id="mE"></div></div>
+</div>
+<pre id="report" class="meta"></pre>
+<script>
+const FILE = new URLSearchParams(location.search).get('file') || 'media/wall_cross_vines_roses_1920x1080.mp4';
+document.getElementById('file').textContent = FILE;
+const v = document.getElementById('v');
+v.src = FILE;
+const $ = id => document.getElementById(id);
+
+function glQuad(canvas) {
+  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true });
+  if (!gl) return null;
+  const vs = `#version 300 es
+out vec2 uv; void main(){ vec2 p = vec2((gl_VertexID==1)?3.0:-1.0,(gl_VertexID==2)?3.0:-1.0); uv = vec2(p.x*0.5+0.5, 0.5-p.y*0.5); gl_Position = vec4(p,0.0,1.0); }`;
+  const fs = `#version 300 es
+precision highp float; in vec2 uv; uniform sampler2D t; out vec4 o; void main(){ o = texture(t, uv); }`;
+  const mk = (ty, src) => { const s = gl.createShader(ty); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p); gl.useProgram(p);
+  gl.bindVertexArray(gl.createVertexArray());
+  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+  for (const [k, val] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, val);
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  return {
+    gl, renderer, uploads: 0, lastErr: null,
+    upload(src) { try { gl.bindTexture(gl.TEXTURE_2D, tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); this.uploads++; const e = gl.getError(); if (e) this.lastErr = 'GL error ' + e; } catch (e) { this.lastErr = e.name + ': ' + e.message; } },
+    draw() { gl.viewport(0, 0, canvas.width, canvas.height); gl.drawArrays(gl.TRIANGLES, 0, 3); },
+    sample() { const px = new Uint8Array(4 * 16); gl.readPixels(100, 60, 16, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return Array.from(px).join(','); },
+  };
+}
+const B = glQuad($('cB')), D = glQuad($('cD')), E = glQuad($('cE'));
+const c2 = $('cC').getContext('2d', { willReadFrequently: true });
+const mid = document.createElement('canvas'); const midCtx = mid.getContext('2d');
+
+const probes = { A: () => { const c = document.createElement('canvas'); c.width = 64; c.height = 36; c.getContext('2d').drawImage(v, 0, 0, 64, 36); return Array.from(c.getContext('2d').getImageData(20, 12, 16, 1).data).join(','); },
+  B: () => B && B.sample(), C: () => Array.from(c2.getImageData(100, 60, 16, 1).data).join(','), D: () => D && D.sample(), E: () => E && E.sample() };
+const hist = { A: [], B: [], C: [], D: [], E: [] };
+let frames = 0, fpsAt = performance.now(), fps = 0, started = false, rvfcCount = 0, bitmaps = 0;
+
+function loop() {
+  frames++;
+  if (performance.now() - fpsAt > 1000) { fps = frames; frames = 0; fpsAt = performance.now(); }
+  if (v.readyState >= 2) {
+    if (B) { B.upload(v); B.draw(); }
+    c2.drawImage(v, 0, 0, 320, 180);
+    if (D) { if (mid.width !== v.videoWidth) { mid.width = v.videoWidth; mid.height = v.videoHeight; } midCtx.drawImage(v, 0, 0); D.upload(mid); D.draw(); }
+  }
+  requestAnimationFrame(loop);
+}
+if ('requestVideoFrameCallback' in v && E) {
+  const onFrame = () => { rvfcCount++; createImageBitmap(v).then(bm => { bitmaps++; E.upload(bm); E.draw(); bm.close(); }).catch(e => { E.lastErr = e.name; }); v.requestVideoFrameCallback(onFrame); };
+  v.requestVideoFrameCallback(onFrame);
+} else if (E) E.lastErr = 'requestVideoFrameCallback not supported';
+
+function judge() {
+  const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+  for (const k of ['A', 'B', 'C', 'D', 'E']) {
+    let s = null; try { s = probes[k](); } catch (e) { s = 'ERR ' + e.message; }
+    const h = hist[k]; h.push(s); if (h.length > 6) h.shift();
+    const el = $('v' + k);
+    if (!started) { el.textContent = 'press Start'; el.className = 'verdict wait'; continue; }
+    if (h.length < 4) { el.textContent = 'checking…'; el.className = 'verdict wait'; continue; }
+    const distinct = new Set(h).size;
+    el.textContent = distinct > 1 ? 'MOVING' : 'FROZEN'; el.className = 'verdict ' + (distinct > 1 ? 'ok' : 'bad');
+  }
+  $('mA').textContent = `currentTime ${v.currentTime.toFixed(2)}  readyState ${v.readyState}  paused ${v.paused}  decoded ${q ? q.totalVideoFrames : '?'}  dropped ${q ? q.droppedVideoFrames : '?'}  error ${v.error ? v.error.code + ' ' + v.error.message : 'none'}`;
+  $('mB').textContent = B ? `uploads ${B.uploads}  ${B.lastErr || 'no GL error'}\n${B.renderer}` : 'WebGL2 unavailable';
+  $('mC').textContent = `page ${fps} fps`;
+  $('mD').textContent = D ? `uploads ${D.uploads}  ${D.lastErr || 'no GL error'}` : 'WebGL2 unavailable';
+  $('mE').textContent = E ? `video frames ${rvfcCount}  bitmaps ${bitmaps}  ${E.lastErr || 'no error'}` : 'WebGL2 unavailable';
+  $('report').textContent = [navigator.userAgent, `file ${FILE}`, ...['A', 'B', 'C', 'D', 'E'].map(k => `${k}: ${$('v' + k).textContent} — ${$('m' + k).textContent.replace(/\n/g, ' ')}`)].join('\n');
+}
+$('start').onclick = () => { started = true; v.play().catch(e => { $('mA').textContent = 'play() refused: ' + e.name; }); };
+$('copy').onclick = () => { navigator.clipboard.writeText($('report').textContent).then(() => { $('copied').textContent = 'copied — paste it in the chat'; }); };
+v.addEventListener('loadedmetadata', () => { started = true; v.play().catch(() => {}); });
+requestAnimationFrame(loop);
+setInterval(judge, 500);
+</script>
+</body>
+</html>

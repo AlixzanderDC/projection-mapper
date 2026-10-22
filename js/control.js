@@ -522,6 +522,8 @@ function settingsPanel(collapsed) {
   const d = el('details', { class: 'panel settings' });
   if (!collapsed) d.open = true;
   d.append(el('summary', { text: 'Show settings' }));
+  d.append(field('Video path', selectInput(state.videoPath || 'direct', [{ value: 'direct', label: 'Direct (default)' }, { value: 'canvas', label: 'Via 2D canvas (driver workaround)' }], v => { state.videoPath = v; commit(); })));
+  d.append(el('p', { class: 'hint' }, 'If video stays frozen on this machine, open ', el('a', { href: 'test-video.html', target: '_blank', text: 'test-video.html' }), ' to see which path works, then pick it here. Applies to projector windows too.'));
   d.append(slider('Mesh density', state.meshDensity, 8, 128, 8, v => { state.meshDensity = v; commit(); }, v => `${v}`));
   d.append(el('p', { class: 'hint', text: 'Subdivisions per surface. Higher = smoother curves, more GPU work. 48 is plenty for most walls.' }));
   d.append(el('p', { class: 'hint', text: 'Everything autosaves in this browser. Use Save as… for a file you can reload later or on another machine.' }));
@@ -607,7 +609,7 @@ window.addEventListener('resize', () => { needFit = true; });
 function frame() {
   const t0 = performance.now();
   if (++fpsCount >= 30) { fps = Math.round(fpsCount * 1000 / (t0 - fpsAt)); fpsCount = 0; fpsAt = t0; worstMs = 0; }
-  if (media) { media.sync(state, usedInControl()); media.tick(state.transport); }
+  if (media) { media.uploadVia = state.videoPath === 'canvas' ? 'canvas' : 'direct'; media.sync(state, usedInControl()); media.tick(state.transport); }
   if (activeTab === 'camera') { camera.draw(); updateTransportUI(); requestAnimationFrame(frame); return; }
   if (needFit) { fitPreview(); needFit = false; }
   const o = currentOutput();

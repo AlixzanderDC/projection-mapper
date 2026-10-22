@@ -5,6 +5,7 @@ export class MediaProvider {
   constructor(gl, { audio = false } = {}) {
     this.gl = gl;
     this.audio = audio;
+    this.uploadVia = 'direct';   // 'direct' = texImage2D(video); 'canvas' = via a 2D canvas (works around GPU driver bugs)
     this.items = new Map();
     this.posters = new Map();   // mediaId -> {src, tex, uploaded}: a still frame used when the file itself is not loaded
     // Media elements live in the document (off-screen) rather than detached: some Chrome builds
@@ -106,7 +107,14 @@ export class MediaProvider {
     } else if (el.readyState >= 2 && (el.currentTime !== it.lastT || !it.uploaded)) {
       gl.bindTexture(gl.TEXTURE_2D, it.tex);
       try {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, el);
+        let src = el;
+        if (this.uploadVia === 'canvas') {
+          if (!it.canvas) { it.canvas = document.createElement('canvas'); it.ctx2d = it.canvas.getContext('2d'); }
+          if (it.canvas.width !== el.videoWidth || it.canvas.height !== el.videoHeight) { it.canvas.width = el.videoWidth; it.canvas.height = el.videoHeight; }
+          it.ctx2d.drawImage(el, 0, 0);
+          src = it.canvas;
+        }
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
         it.uploaded = true;
         it.lastT = el.currentTime;
       } catch { /* frame not ready yet */ }
