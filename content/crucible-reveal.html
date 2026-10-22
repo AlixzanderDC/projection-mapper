@@ -66,6 +66,28 @@ logoImg.onload = () => {
 logoImg.onerror = () => { document.getElementById('status').textContent = 'logo failed to load: ' + LOGO_URL; };
 logoImg.src = LOGO_URL;
 const LOGO_W = 1260, LOGO_CX = WALL_C[0], LOGO_CY = 520;
+const LOGO_SPLIT = 876;   // column in the logo file between the "u" and the "c"
+// Horizontal extent of the cross across a band of rows (scanline intersections with the outline).
+function crossExtent(y0, y1) {
+  let min = Infinity, max = -Infinity;
+  for (let y = y0; y <= y1; y += 4) {
+    for (let i = 0; i < CROSS.length; i++) {
+      const a = CROSS[i], b = CROSS[(i + 1) % CROSS.length];
+      if ((a[1] > y) !== (b[1] > y)) { const x = a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1]); if (x < min) min = x; if (x > max) max = x; }
+    }
+  }
+  return [min, max];
+}
+// Draw the logo in two halves with a gap that clears the cross over the letter rows.
+function drawLogoSplit(img, cx, cy, w, h) {
+  const scale = w / img.width;
+  const [ex0, ex1] = crossExtent(cy - h * 0.28, cy + h * 0.28);   // the rows the letters occupy
+  const gap = Math.max(0, (ex1 - ex0) + 70);
+  const leftW = LOGO_SPLIT * scale, rightW = w - leftW;
+  const centre = (ex0 + ex1) / 2;                                   // put the gap on the cross, not the frame centre
+  ctx.drawImage(img, 0, 0, LOGO_SPLIT, img.height, centre - gap / 2 - leftW, cy - h / 2, leftW, h);
+  ctx.drawImage(img, LOGO_SPLIT, 0, img.width - LOGO_SPLIT, img.height, centre + gap / 2, cy - h / 2, rightW, h);
+}
 
 // ---- stars and sparkles
 const STARS = []; { const r = mulberry32(3); for (let i = 0; i < 140; i++) STARS.push({ x: 100 + r() * 1480, y: 20 + r() * 900, s: 0.5 + r() * 1.4, ph: r() * 6.28, f: 0.6 + r() * 1.6 }); }
@@ -115,9 +137,9 @@ function drawWall(t) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = alpha * (0.5 + 0.6 * full);
-      ctx.drawImage(logoGlow, LOGO_CX - w / 2, LOGO_CY - h / 2, w, h);
+      drawLogoSplit(logoGlow, LOGO_CX, LOGO_CY, w, h);
       ctx.globalAlpha = alpha;
-      ctx.drawImage(logo, LOGO_CX - w / 2, LOGO_CY - h / 2, w, h);
+      drawLogoSplit(logo, LOGO_CX, LOGO_CY, w, h);
       ctx.restore();
     }
   }
