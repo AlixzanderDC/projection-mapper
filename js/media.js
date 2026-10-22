@@ -84,6 +84,19 @@ export class MediaProvider {
   }
 
   // Drive every video from the shared transport clock.
+  // Diagnostics for the UI: how many videos are decoding here, and dropped frames (Chrome/Edge).
+  stats() {
+    let videos = 0, dropped = 0, errors = 0;
+    for (const it of this.items.values()) {
+      if (it.kind !== 'video') continue;
+      videos++;
+      if (it.playError) errors++;
+      const q = it.el.getVideoPlaybackQuality?.();
+      if (q) dropped += q.droppedVideoFrames;
+    }
+    return { videos, dropped, errors };
+  }
+
   tick(transport, now = Date.now()) {
     const t = transportTime(transport, now);
     const correct = now - this.lastCorrect > 400;
@@ -98,8 +111,14 @@ export class MediaProvider {
       if (v.muted !== muted) v.muted = muted;
       if (this.audio) v.volume = clamp(transport.volume, 0, 1);
       if (transport.playing && target < d) {
-        if (v.paused) { v.currentTime = target; v.play().catch(() => {}); }
-        else if (correct && Math.abs(v.currentTime - target) > 0.1) v.currentTime = target;
+        if (v.paused) {
+          // Never hammer play()/seek every frame: if play() is refused, retry once a second.
+          if (now - (it.playTriedAt || 0) > 1000) {
+            it.playTriedAt = now;
+            if (Math.abs(v.currentTime - target) > 0.1) v.currentTime = target;
+            v.play().catch(e => { it.playError = e.name; });
+          }
+        } else if (correct && Math.abs(v.currentTime - target) > 0.1) v.currentTime = target;
       } else {
         if (!v.paused) v.pause();
         if (correct && Math.abs(v.currentTime - target) > 0.04) v.currentTime = target;
