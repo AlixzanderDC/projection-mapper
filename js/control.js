@@ -412,6 +412,13 @@ function outputInspector(o) {
   box.append(slider('Brightness', o.brightness, 0, 1, 0.01, v => { o.brightness = v; commit(); }, v => v.toFixed(2)));
   box.append(slider('Gamma', o.gamma, 0.5, 3, 0.01, v => { o.gamma = v; commit(); }, v => v.toFixed(2)));
 
+  box.append(el('h3', { text: 'Brightness ramp' }));
+  box.append(el('p', { class: 'hint', text: 'Gain at each edge, blended across the frame. Raise the edge that is farthest from the projector (usually the top) to even out the picture. Above 1 can clip bright content.' }));
+  if (!o.ramp) o.ramp = { top: 1, bottom: 1, left: 1, right: 1 };
+  for (const [k, label] of [['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right']]) {
+    box.append(slider(`${label} gain`, o.ramp[k], 0.5, 2.5, 0.01, v => { o.ramp[k] = v; commit(); }, v => `×${v.toFixed(2)}`));
+  }
+
   box.append(el('h3', { text: 'Edge blend' }));
   box.append(el('p', { class: 'hint', text: 'Where two projectors overlap, feather the overlapping edge on both. Width in output pixels.' }));
   for (const [k, label] of [['left', 'Left'], ['right', 'Right'], ['top', 'Top'], ['bottom', 'Bottom']]) {

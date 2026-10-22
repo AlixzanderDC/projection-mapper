@@ -60,6 +60,7 @@ export function makeOutput(index) {
     },
     brightness: 1,
     gamma: 1,
+    ramp: { top: 1, bottom: 1, left: 1, right: 1 },   // gain at each edge, interpolated across the frame (far edges need more)
     testPattern: false,
     editOverlay: true,
   };
