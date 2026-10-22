@@ -94,7 +94,11 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     root = os.path.dirname(os.path.abspath(__file__))
     os.makedirs(os.path.join(root, 'media'), exist_ok=True)
-    server = ThreadingHTTPServer(('127.0.0.1', port), partial(Handler, directory=root))
+    try:
+        server = ThreadingHTTPServer(('127.0.0.1', port), partial(Handler, directory=root))
+    except OSError:
+        print(f'Already running — open http://127.0.0.1:{port}/ in your browser.')
+        return
     print(f'Projection mapper:  http://127.0.0.1:{port}/   (Ctrl+C to stop)')
     try:
         server.serve_forever()
