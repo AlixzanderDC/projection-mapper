@@ -7,6 +7,11 @@ export class MediaProvider {
     this.audio = audio;
     this.items = new Map();
     this.posters = new Map();   // mediaId -> {src, tex, uploaded}: a still frame used when the file itself is not loaded
+    // Media elements live in the document (off-screen) rather than detached: some Chrome builds
+    // will not run a decoder for an element that is not in the DOM.
+    this.holder = document.createElement('div');
+    this.holder.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1';
+    document.body.append(this.holder);
     this.onMeta = null;    // (id, {duration, width, height})
     this.onError = null;   // (id)
   }
@@ -43,6 +48,8 @@ export class MediaProvider {
       el.addEventListener('loadedmetadata', () => this.onMeta?.(m.id, { duration: el.duration, width: el.videoWidth || 0, height: el.videoHeight || 0 }));
       el.addEventListener('error', () => this.onError?.(m.id));
       el.src = m.url;
+      el.style.cssText = 'width:2px;height:2px';
+      this.holder.append(el);
       el.load();
     } else {
       el = new Image();
@@ -56,7 +63,7 @@ export class MediaProvider {
   remove(id) {
     const it = this.items.get(id);
     if (!it) return;
-    if (it.kind !== 'image') { it.el.pause(); it.el.removeAttribute('src'); it.el.load(); }
+    if (it.kind !== 'image') { it.el.pause(); it.el.removeAttribute('src'); it.el.load(); it.el.remove(); }
     this.gl.deleteTexture(it.tex);
     this.items.delete(id);
   }

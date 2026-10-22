@@ -784,7 +784,8 @@ window.pmapDebug = () => ({
   transport: { ...state.transport, now: C.transportTime(state.transport) },
   previewMedia, volume: state.transport.volume,
   wanted: [...state.media].map(m => ({ name: m.name, kind: m.kind, missing: !!m.missing, keep: usedInControl()(m.id), info: mediaInfo.get(m.id) || null })),
-  elements: media ? [...media.items.values()].map(it => ({ kind: it.kind, readyState: it.el.readyState, networkState: it.el.networkState, paused: it.el.paused, playbackRate: it.el.playbackRate, currentTime: it.el.currentTime, duration: it.el.duration, muted: it.el.muted, error: it.el.error?.message || it.playError || null, uploaded: it.uploaded })) : 'no renderer',
+  page: { visibility: document.visibilityState, hidden: document.hidden, userAgent: navigator.userAgent },
+  elements: media ? [...media.items.values()].map(it => { const q = it.el.getVideoPlaybackQuality?.(); const b = it.el.buffered; return { kind: it.kind, src: it.el.currentSrc, readyState: it.el.readyState, networkState: it.el.networkState, paused: it.el.paused, playbackRate: it.el.playbackRate, currentTime: it.el.currentTime, duration: it.el.duration, muted: it.el.muted, inDOM: it.el.isConnected, buffered: b && b.length ? `${b.start(0).toFixed(1)}-${b.end(b.length - 1).toFixed(1)}s (${b.length})` : 'none', decodedFrames: q ? q.totalVideoFrames : null, droppedFrames: q ? q.droppedVideoFrames : null, error: it.el.error ? `${it.el.error.code}: ${it.el.error.message}` : (it.playError || null), uploaded: it.uploaded }; }) : 'no renderer',
   surfaces: state.outputs.flatMap(o => o.surfaces.map(s => ({ output: o.name, name: s.name, visible: s.visible, fill: s.fill, media: state.media.find(m => m.id === s.mediaId)?.name ?? null }))),
 });
 
