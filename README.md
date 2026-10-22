@@ -67,6 +67,15 @@ For shapes with holes or notches, use a **Mask**: a polygon in surface space tha
 
 An X-shaped cross: one surface, corner-pinned to the four tips of the X (the cross's bounding box), mask preset **X cross**, arm width to match the beams, nudge the points. Show it as a Grid or Solid while fitting, then switch to the Source.
 
+## Making content for a mapped shape
+
+Once a shape is mapped, you usually want video made for it rather than a rectangle warped onto it. In the projector inspector, **Content template** gives you two files at the projector's real resolution (open the projector window first so the size is right):
+
+- **Shape PNG** — white where the projector lights, black elsewhere, pixel-exact. Use it as a track matte or mask layer in Premiere, After Effects, Resolve or whatever you edit in.
+- **Guide SVG** — outlines, warp grid lines, control point numbers and masks as vector paths. Drop it on a layer above your composition to see where everything lands.
+
+Make the video at that size, put it in `media/`, add a surface, press **Full frame** (the whole projector, 1:1), and pick the video as its source. Nothing else to warp: the content already has the shape. Keep the original mapped surfaces in the show if you want to switch between warped rectangles and purpose-made content; just toggle **Visible**.
+
 ## Multiple projectors on one wall
 
 1. Add two projectors, open both windows, put each on its display, press **F** in each.

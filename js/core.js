@@ -378,6 +378,16 @@ export function applyOp(state, op) {
       for (let r = 0; r < s.rows; r++) for (let c = 0; c < s.cols; c++) s.pts[r][c] = H(c / (s.cols - 1), r / (s.rows - 1));
       return true;
     }
+    case 'fullFrame': {
+      const f = findSurface(state, op.surfaceId);
+      if (!f) return false;
+      const s = f.surface;
+      s.cols = 2; s.rows = 2;
+      s.pts = [[{ x: 0, y: 0 }, { x: 1, y: 0 }], [{ x: 0, y: 1 }, { x: 1, y: 1 }]];
+      s.uv = { x: 0, y: 0, w: 1, h: 1 };
+      if (state.selection.surfaceId === s.id) state.selection.point = null;
+      return true;
+    }
     case 'resetShape': {
       const f = findSurface(state, op.surfaceId);
       if (!f) return false;

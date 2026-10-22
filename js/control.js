@@ -4,6 +4,7 @@ import { Renderer, drawOverlay } from './render.js';
 import { MediaProvider } from './media.js';
 import { Editor } from './editor.js';
 import { CameraPanel } from './camera.js';
+import { silhouettePng, guideSvg, download } from './export.js';
 
 const $ = s => document.querySelector(s);
 const bc = new BroadcastChannel(C.CHANNEL);
@@ -343,6 +344,14 @@ function outputInspector(o) {
     box.append(slider(`${label} curve`, e.g, 1, 4, 0.05, v => { e.g = v; commit(); }, v => v.toFixed(2)));
   }
 
+  box.append(el('h3', { text: 'Content template' }));
+  box.append(el('p', { class: 'hint', text: `Downloads the exact shape this projector lights, at ${o.width}×${o.height}. Make your video at that size, then show it on a Full frame surface.` + (isConnected(o) ? '' : ' Open the projector window first so the size is the real one.') }));
+  const safe = () => (o.name || 'projector').replace(/[^\w.-]+/g, '_');
+  box.append(el('div', { class: 'row wrap' },
+    btn('Shape PNG', async () => { try { download(await silhouettePng(o, state), `${safe()}_${o.width}x${o.height}_shape.png`); } catch (e) { toast('Export failed: ' + e.message); } }),
+    btn('Guide SVG', () => { try { download(new Blob([guideSvg(o, state)], { type: 'image/svg+xml' }), `${safe()}_${o.width}x${o.height}_guide.svg`); } catch (e) { toast('Export failed: ' + e.message); } })));
+  box.append(el('p', { class: 'hint', text: 'Shape PNG = white on black, pixel-exact: use it as a track matte or mask layer. Guide SVG = outlines, warp grid lines and point numbers as vectors: lay it over your composition.' }));
+
   box.append(el('h3', { text: 'Surfaces' }));
   box.append(el('div', { class: 'row' }, btn('Add surface', () => addSurface(o), 'primary')));
   box.append(el('p', { class: 'hint', text: 'A surface is one patch of video. Flat wall or screen: keep the 2×2 grid and drag the corners. Curved: raise the grid and pull the inner points.' }));
@@ -382,7 +391,9 @@ function surfaceInspector(o, s) {
   box.append(el('p', { class: 'hint', text: '2×2 is a corner pin (perspective-correct, for flat surfaces). More points let the image follow the object: Smooth bends through them (columns, domes), Straight creases at them (boxes, crosses, folded walls). Changing the grid keeps the current shape.' }));
   box.append(el('div', { class: 'row' },
     btn('Straighten', () => { C.applyOp(state, { type: 'flatten', surfaceId: s.id }); commit(); }),
-    btn('Reset shape', () => { C.applyOp(state, { type: 'resetShape', surfaceId: s.id }); commit(); })));
+    btn('Reset shape', () => { C.applyOp(state, { type: 'resetShape', surfaceId: s.id }); commit(); }),
+    btn('Full frame', () => { C.applyOp(state, { type: 'fullFrame', surfaceId: s.id }); commit(true); })));
+  box.append(el('p', { class: 'hint', text: 'Full frame = the whole projector, 1:1, for content made from a Content template.' }));
 
   box.append(el('h3', { text: 'Source crop' }));
   box.append(el('p', { class: 'hint', text: 'Which part of the source this surface shows (0–1). Use it to spread one wide video across several projectors.' }));
