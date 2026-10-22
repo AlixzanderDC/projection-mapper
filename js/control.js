@@ -645,7 +645,7 @@ function updateDiag() {
   const box = $('#diag');
   if (!showDiag) { if (!box.hidden) box.hidden = true; return; }
   if (box.hidden) box.hidden = false;
-  if (diag.frames % 10) return;
+  if (diag.frames % 5 && box.textContent) return;
   const o = currentOutput();
   box.textContent = [
     `CONTROL  frames=${diag.frames} fps=${fps} frameMs=${frameMs.toFixed(1)} errors=${diag.errors}${diag.lastError ? ' last=' + diag.lastError : ''} glLost=${renderer ? renderer.lost : 'no renderer'}`,
