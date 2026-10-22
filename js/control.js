@@ -784,7 +784,7 @@ window.pmapDebug = () => ({
   transport: { ...state.transport, now: C.transportTime(state.transport) },
   previewMedia, volume: state.transport.volume,
   wanted: [...state.media].map(m => ({ name: m.name, kind: m.kind, missing: !!m.missing, keep: usedInControl()(m.id), info: mediaInfo.get(m.id) || null })),
-  elements: media ? [...media.items.values()].map(it => ({ kind: it.kind, readyState: it.el.readyState, networkState: it.el.networkState, paused: it.el.paused, currentTime: it.el.currentTime, duration: it.el.duration, muted: it.el.muted, error: it.el.error?.message || it.playError || null, uploaded: it.uploaded })) : 'no renderer',
+  elements: media ? [...media.items.values()].map(it => ({ kind: it.kind, readyState: it.el.readyState, networkState: it.el.networkState, paused: it.el.paused, playbackRate: it.el.playbackRate, currentTime: it.el.currentTime, duration: it.el.duration, muted: it.el.muted, error: it.el.error?.message || it.playError || null, uploaded: it.uploaded })) : 'no renderer',
   surfaces: state.outputs.flatMap(o => o.surfaces.map(s => ({ output: o.name, name: s.name, visible: s.visible, fill: s.fill, media: state.media.find(m => m.id === s.mediaId)?.name ?? null }))),
 });
 
