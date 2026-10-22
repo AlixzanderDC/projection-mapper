@@ -104,8 +104,23 @@ function updateUndoButtons() {
 const opKey = op => `${op.type}:${op.surfaceId || op.outputId || ''}:${op.r ?? ''},${op.c ?? ''}:${op.i ?? ''}`;
 const VIEW_OPS = ['select', 'toggle'];
 
+// More than one control window open = two sources of truth fighting over the show. Detect and warn.
+const controlId = C.uid();
+bc.postMessage({ type: 'control-hello', controlId });
+let otherControlSeen = 0;
+function warnOtherControl() {
+  otherControlSeen = Date.now();
+  toast('ANOTHER CONTROL WINDOW IS OPEN. Close the other one (or this one) — two control windows fight over the show and playback stops.', 15000);
+}
+
 bc.onmessage = ({ data: msg }) => {
   switch (msg.type) {
+    case 'control-hello':
+      if (msg.controlId !== controlId) { bc.postMessage({ type: 'control-here', controlId }); warnOtherControl(); }
+      break;
+    case 'control-here':
+      if (msg.controlId !== controlId) warnOtherControl();
+      break;
     case 'hello':
       bc.postMessage({ type: 'state', state });
       break;
@@ -648,7 +663,7 @@ function updateDiag() {
   if (diag.frames % 5 && box.textContent) return;
   const o = currentOutput();
   box.textContent = [
-    `CONTROL  frames=${diag.frames} fps=${fps} frameMs=${frameMs.toFixed(1)} errors=${diag.errors}${diag.lastError ? ' last=' + diag.lastError : ''} glLost=${renderer ? renderer.lost : 'no renderer'}`,
+    `CONTROL  frames=${diag.frames} fps=${fps} frameMs=${frameMs.toFixed(1)} errors=${diag.errors}${diag.lastError ? ' last=' + diag.lastError : ''} glLost=${renderer ? renderer.lost : 'no renderer'} otherControl=${otherControlSeen ? 'YES at ' + new Date(otherControlSeen).toLocaleTimeString() : 'no'} playPresses=${diag.playPresses || 0}`,
     `transport playing=${state.transport.playing} clock=${C.transportTime(state.transport).toFixed(2)} volume=${state.transport.volume} previewVideo=${previewMedia} videoPath=${state.videoPath || 'direct'}`,
     `output=${o ? o.name : '-'} surfaces=${o ? o.surfaces.map(s => `${s.name}[${s.visible ? 'on' : 'off'},${s.fill},${state.media.find(m => m.id === s.mediaId)?.name ?? 'none'}]`).join(' ') : '-'}`,
     ...(media ? media.lines(state.transport) : ['no media provider']),
@@ -708,6 +723,7 @@ function longestDuration() {
   return d;
 }
 function play() {
+  diag.playPresses = (diag.playPresses || 0) + 1;
   const tr = state.transport;
   if (tr.playing) { tr.pausedAt = C.transportTime(tr); tr.playing = false; }
   else {
