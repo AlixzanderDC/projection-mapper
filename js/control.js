@@ -47,12 +47,62 @@ function broadcast() {
   bcTimer = setTimeout(() => { bcTimer = null; bc.postMessage({ type: 'state', state }); }, 8);
 }
 
-function commit(rebuild = false) {
+// ---------------------------------------------------------------- undo / redo
+// Snapshot-based. `lastCommitted` is the state as of the previous commit; a commit
+// pushes it onto the undo stack unless it continues the same gesture (same key,
+// within 1.5 s), so a drag or a slider sweep is one step.
+const history = { undo: [], redo: [], lastKey: null, lastAt: 0, max: 100 };
+let lastCommitted = JSON.stringify(state);
+let activeKey = null;   // set by slider/editor helpers while a gesture is in progress
+
+function commit(rebuild = false, opts = {}) {
+  const { history: track = true, key = activeKey } = opts;
+  if (track) {
+    const now = Date.now();
+    const sameGesture = key && key === history.lastKey && now - history.lastAt < 1500;
+    if (!sameGesture) {
+      history.undo.push(lastCommitted);
+      if (history.undo.length > history.max) history.undo.shift();
+      history.redo.length = 0;
+    }
+    history.lastKey = key || null;
+    history.lastAt = now;
+  }
+  lastCommitted = JSON.stringify(state);
   save();
   broadcast();
   probeMedia();
   if (rebuild) { rebuildLists(); rebuildInspector(); }
+  updateUndoButtons();
 }
+
+function restore(snapshot) {
+  const next = JSON.parse(snapshot);
+  next.transport = state.transport;  // playback is not part of the edit history
+  state = next;
+  history.lastKey = null;
+  commit(true, { history: false });
+}
+function undo() {
+  if (!history.undo.length) return;
+  history.redo.push(JSON.stringify(state));
+  restore(history.undo.pop());
+  toast('Undo', 1200);
+}
+function redo() {
+  if (!history.redo.length) return;
+  history.undo.push(JSON.stringify(state));
+  restore(history.redo.pop());
+  toast('Redo', 1200);
+}
+function endGesture() { history.lastKey = null; activeKey = null; }
+function updateUndoButtons() {
+  const u = $('#btnUndo'), r = $('#btnRedo');
+  if (u) u.disabled = !history.undo.length;
+  if (r) r.disabled = !history.redo.length;
+}
+const opKey = op => `${op.type}:${op.surfaceId || op.outputId || ''}:${op.r ?? ''},${op.c ?? ''}:${op.i ?? ''}`;
+const VIEW_OPS = ['select', 'toggle'];
 
 bc.onmessage = ({ data: msg }) => {
   switch (msg.type) {
@@ -60,14 +110,19 @@ bc.onmessage = ({ data: msg }) => {
       bc.postMessage({ type: 'state', state });
       break;
     case 'op':
-      if (C.applyOp(state, msg.op)) commit(['select', 'toggle', 'cycleFill', 'addMaskPoint', 'removeMaskPoint'].includes(msg.op.type));
+      if (C.applyOp(state, msg.op)) commit(['select', 'toggle', 'cycleFill', 'addMaskPoint', 'removeMaskPoint'].includes(msg.op.type), { history: !VIEW_OPS.includes(msg.op.type), key: opKey(msg.op) });
       break;
+    case 'gestureEnd':
+      endGesture();
+      break;
+    case 'undo': undo(); break;
+    case 'redo': redo(); break;
     case 'status': {
       outputStatus.set(msg.outputId, { ...msg, lastSeen: Date.now() });
       const o = C.findOutput(state, msg.outputId);
       if (o && msg.width >= 64 && msg.height >= 64 && (o.width !== msg.width || o.height !== msg.height)) {
         o.width = msg.width; o.height = msg.height;
-        commit(false);
+        commit(false, { history: false });
         updateStatusTexts();
       }
       updateStatusTexts();
@@ -118,7 +173,9 @@ function selectInput(value, options, onchange) {
 function slider(label, value, min, max, step, oninput, fmt = v => String(v)) {
   const out = el('output', { text: fmt(value) });
   const i = el('input', { type: 'range', min, max, step, value });
-  i.addEventListener('input', () => { const v = parseFloat(i.value); out.textContent = fmt(v); oninput(v); });
+  const key = 'slider:' + label + ':' + (state.selection.surfaceId || state.selection.outputId || '');
+  i.addEventListener('input', () => { const v = parseFloat(i.value); out.textContent = fmt(v); activeKey = key; oninput(v); activeKey = null; });
+  i.addEventListener('change', endGesture);
   i.addEventListener('dblclick', () => { i.value = value; i.dispatchEvent(new Event('input')); });
   return el('label', { class: 'field slider' }, el('span', { text: label }), i, out);
 }
@@ -473,7 +530,7 @@ try {
 
 new Editor(overlayCanvas, {
   get: () => ({ state, output: currentOutput() }),
-  send: op => { if (C.applyOp(state, op)) commit(['select', 'cycleFill', 'addMaskPoint', 'removeMaskPoint'].includes(op.type)); },
+  send: op => { if (C.applyOp(state, op)) commit(['select', 'cycleFill', 'addMaskPoint', 'removeMaskPoint'].includes(op.type), { history: !VIEW_OPS.includes(op.type), key: opKey(op) }); },
 });
 
 function fitPreview() {
@@ -500,7 +557,7 @@ let activeTab = 'preview';
 const camera = new CameraPanel($('#cameraPanel'), {
   getState: () => state,
   currentOutput,
-  send: op => { if (C.applyOp(state, op)) commit(op.type === 'select'); },
+  send: op => { if (C.applyOp(state, op)) commit(op.type === 'select', { history: !VIEW_OPS.includes(op.type), key: opKey(op) }); },
   commit,
   bc,
   toast,
@@ -585,17 +642,17 @@ function play() {
   const tr = state.transport;
   if (tr.playing) { tr.pausedAt = C.transportTime(tr); tr.playing = false; }
   else { tr.startedAt = Date.now(); tr.playing = true; }
-  commit();
+  commit(false, { history: false });
 }
 function stop() {
   const tr = state.transport;
   tr.playing = false; tr.pausedAt = 0;
-  commit();
+  commit(false, { history: false });
 }
 function seek(t) {
   const tr = state.transport;
   tr.pausedAt = Math.max(0, t); tr.startedAt = Date.now();
-  commit();
+  commit(false, { history: false });
 }
 
 let scrubbing = false;
@@ -643,9 +700,13 @@ $('#btnAddOutput').addEventListener('click', addOutput);
 $('#chkPreviewMedia').addEventListener('change', e => { previewMedia = e.target.checked; });
 $('#btnPlay').addEventListener('click', play);
 $('#btnStop').addEventListener('click', stop);
-$('#chkLoop').addEventListener('change', e => { state.transport.loop = e.target.checked; commit(); });
-$('#selRate').addEventListener('change', e => { seek(C.transportTime(state.transport)); state.transport.rate = parseFloat(e.target.value); commit(); });
-$('#vol').addEventListener('input', e => { state.transport.volume = parseFloat(e.target.value); commit(); });
+$('#chkLoop').addEventListener('change', e => { state.transport.loop = e.target.checked; commit(false, { history: false }); });
+$('#selRate').addEventListener('change', e => { seek(C.transportTime(state.transport)); state.transport.rate = parseFloat(e.target.value); commit(false, { history: false }); });
+$('#vol').addEventListener('input', e => { state.transport.volume = parseFloat(e.target.value); commit(false, { history: false }); });
+$('#btnUndo').addEventListener('click', undo);
+$('#btnRedo').addEventListener('click', redo);
+document.addEventListener('pointerup', endGesture);
+document.addEventListener('keyup', e => { if (e.key.startsWith('Arrow')) endGesture(); });
 const scrub = $('#scrub');
 scrub.addEventListener('pointerdown', () => { scrubbing = true; });
 scrub.addEventListener('input', () => seek(parseFloat(scrub.value)));
@@ -654,6 +715,9 @@ document.addEventListener('pointerup', () => { scrubbing = false; });
 
 document.addEventListener('keydown', e => {
   const tag = e.target.tagName;
+  const typing = (tag === 'INPUT' && ['text', 'number'].includes(e.target.type)) || tag === 'TEXTAREA';
+  if ((e.ctrlKey || e.metaKey) && !typing && (e.key === 'z' || e.key === 'Z')) { e.shiftKey ? redo() : undo(); e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && !typing && (e.key === 'y' || e.key === 'Y')) { redo(); e.preventDefault(); return; }
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
   if (e.code === 'Space') { play(); e.preventDefault(); }
 });
@@ -670,4 +734,5 @@ rebuildLists();
 rebuildInspector();
 broadcast();
 probeMedia();
+updateUndoButtons();
 requestAnimationFrame(frame);

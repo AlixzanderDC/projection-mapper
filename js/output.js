@@ -65,11 +65,15 @@ function toggleFullscreen() {
 }
 document.addEventListener('keydown', e => {
   const o = output();
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { bc.postMessage({ type: e.shiftKey ? 'redo' : 'undo' }); e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { bc.postMessage({ type: 'redo' }); e.preventDefault(); return; }
   if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); e.preventDefault(); }
   else if ((e.key === 'e' || e.key === 'E') && o) send({ type: 'toggle', outputId: o.id, key: 'editOverlay' });
   else if ((e.key === 't' || e.key === 'T') && o) send({ type: 'toggle', outputId: o.id, key: 'testPattern' });
 });
 overlay.addEventListener('dblclick', toggleFullscreen);
+document.addEventListener('pointerup', () => bc.postMessage({ type: 'gestureEnd' }));
+document.addEventListener('keyup', e => { if (e.key.startsWith('Arrow')) bc.postMessage({ type: 'gestureEnd' }); });
 
 async function keepAwake() {
   try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch { /* not granted */ }

@@ -87,7 +87,7 @@ A single video decodes once per window, so two projectors showing one 4K file me
 
 ## Keys
 
-Control window: **Space** play/pause · **Arrows** nudge the selected point or surface by 1px (**Shift** = 10px) · **Tab** / **Shift+Tab** next/previous grid point · **G** cycle Source/Grid/Solid on the selected surface · **Insert** / **Delete** add or remove a mask point · **Esc** deselect.
+Control window: **Ctrl+Z** undo, **Ctrl+Y** or **Ctrl+Shift+Z** redo (a drag or slider sweep is one step; also works from a projector window) · **Space** play/pause · **Arrows** nudge the selected point or surface by 1px (**Shift** = 10px) · **Tab** / **Shift+Tab** next/previous grid point · **G** cycle Source/Grid/Solid on the selected surface · **Insert** / **Delete** add or remove a mask point · **Esc** deselect.
 
 Projector window: **F** or double-click = fullscreen · **E** show/hide handles · **T** test pattern · same arrow/Tab editing as above. Hide the handles (E) before the show; the cursor hides with them.
 

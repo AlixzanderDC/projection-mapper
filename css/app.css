@@ -37,6 +37,8 @@ code { background: #0e0f12; padding: 0 4px; border-radius: 4px; }
 }
 .brand { margin-right: 8px; }
 .topbar .name { width: 220px; }
+.topbar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+button:disabled { opacity: .45; cursor: default; }
 .spacer { flex: 1; }
 .toast { color: var(--warn); opacity: 0; transition: opacity .2s; max-width: 50vw; }
 .toast.show { opacity: 1; }
