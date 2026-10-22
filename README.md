@@ -123,3 +123,7 @@ Projector window: **F** or double-click = fullscreen · **E** show/hide handles 
 ## License
 
 MIT — see `LICENSE`.
+
+## Procedural content: `content/`
+
+`content/vines-roses.html` is a time-driven canvas animation made for a mapped X-cross and the wall behind it (shapes taken from the exported Guide SVG). Open it in a browser to preview and scrub; **Record WebM** saves one loop as a video. `content/render-frames.js` renders every frame headlessly and encodes an MP4 with ffmpeg (needs Node with Playwright, Chrome and ffmpeg). Add `?nobg=1` for the cross alone.
