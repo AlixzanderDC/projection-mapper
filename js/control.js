@@ -226,6 +226,9 @@ async function scanFolder() {
       if (!kind) continue;
       const url = 'media/' + href;
       if (state.media.some(m => m.url === url)) continue;
+      // A file added earlier with "Add files…" (session-only) that now lives in media/: relink it, keep its surfaces.
+      const stale = state.media.find(m => m.name === name && m.url !== url && (m.missing || !m.persistent));
+      if (stale) { stale.url = url; stale.persistent = true; stale.missing = false; probed.delete(stale.id); mediaInfo.delete(stale.id); added++; continue; }
       state.media.push({ id: C.uid(), name, url, kind, persistent: true });
       added++;
     }
