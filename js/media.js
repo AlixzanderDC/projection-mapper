@@ -162,10 +162,15 @@ export class MediaProvider {
             v.playbackRate = transport.rate;
             v.play().catch(e => { it.playError = e.name; });
           }
-        } else if (v.readyState >= 3) {                     // only judge drift once frames are flowing
-          if (ad > 1.5 && canSeek) { v.currentTime = target; it.lastSeekAt = now; v.playbackRate = transport.rate; }
-          else if (ad > 0.06) { const k = 1 + Math.min(ad, 1) * 0.12; v.playbackRate = transport.rate * (drift > 0 ? 1 / k : k); }
-          else if (v.playbackRate !== transport.rate) v.playbackRate = transport.rate;
+        } else if (v.readyState >= 3 && now - (it.rateAt || 0) > 1000) {
+          // Judge drift once a second, once frames are flowing. Rate changes are expensive in
+          // Chrome (the pipeline reconfigures), so use a few fixed steps and a dead zone.
+          it.rateAt = now;
+          let want = transport.rate;
+          if (ad > 1.5 && canSeek) { v.currentTime = target; it.lastSeekAt = now; }
+          else if (ad > 0.4) want = transport.rate * (drift > 0 ? 0.92 : 1.08);
+          else if (ad > 0.12) want = transport.rate * (drift > 0 ? 0.97 : 1.03);
+          if (Math.abs(v.playbackRate - want) > 0.001) v.playbackRate = want;
         }
       } else {
         if (!v.paused) v.pause();
