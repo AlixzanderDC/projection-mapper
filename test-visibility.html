@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hidden video decode test</title>
+<style>
+  body { margin: 0; padding: 16px; background: #121316; color: #e8e9ec; font: 14px system-ui, sans-serif; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+  .box { background: #1b1d22; border: 1px solid #2f333b; border-radius: 8px; padding: 10px; width: 300px; }
+  .box h2 { font-size: 13px; margin: 0 0 6px; color: #9aa0ab; min-height: 34px; }
+  .stage { position: relative; width: 280px; height: 160px; background: #000; overflow: hidden; }
+  .verdict { font-size: 22px; font-weight: 700; margin: 8px 0 2px; }
+  .ok { color: #3ddc84; } .bad { color: #ff5c5c; } .wait { color: #ffb020; }
+  .meta { color: #9aa0ab; font-size: 12px; }
+  button { background: #0f6f7c; color: #fff; border: 1px solid #138a9a; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }
+  pre { color: #9aa0ab; font-size: 12px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1 style="font-size:18px;margin:0 0 6px">Hidden video decode test</h1>
+<div>Same file, four elements, each hidden a different way. Each box reports how many frames per second Chrome decodes for it.
+  <button id="copy">Copy report</button> <span id="copied"></span></div>
+<div class="row" id="row"></div>
+<pre id="report"></pre>
+<script>
+const FILE = new URLSearchParams(location.search).get('file') || 'media/wall_cross_vines_roses_1920x1080.mp4';
+const CASES = [
+  { id: 'A', title: 'A. Visible 280×160, opacity 1 (control case)', setup: (v, st) => { v.style.cssText = 'width:280px;height:160px'; st.append(v); } },
+  { id: 'B', title: 'B. 2×2 px, opacity 0.01 (what the app does now)', setup: (v, st) => { const h = document.createElement('div'); h.style.cssText = 'position:absolute;left:0;top:0;width:2px;height:2px;overflow:hidden;opacity:0.01'; v.style.cssText = 'width:2px;height:2px'; h.append(v); st.append(h); } },
+  { id: 'C', title: 'C. 2×2 px, opacity 1', setup: (v, st) => { v.style.cssText = 'position:absolute;left:0;top:0;width:2px;height:2px'; st.append(v); } },
+  { id: 'D', title: 'D. 280×160, opacity 1, fully covered by an opaque box', setup: (v, st) => { v.style.cssText = 'position:absolute;left:0;top:0;width:280px;height:160px'; st.append(v); const c = document.createElement('div'); c.style.cssText = 'position:absolute;inset:0;background:#222;display:flex;align-items:center;justify-content:center;color:#666'; c.textContent = 'covered'; st.append(c); } },
+  { id: 'E', title: 'E. 120×120, opacity 1, bottom-right of a 280×160 box', setup: (v, st) => { v.style.cssText = 'position:absolute;right:0;bottom:0;width:120px;height:120px;object-fit:cover'; st.append(v); } },
+  { id: 'F', title: 'F. Off-screen (left: -5000px)', setup: (v, st) => { v.style.cssText = 'position:fixed;left:-5000px;top:0;width:280px;height:160px'; document.body.append(v); st.textContent = 'off-screen'; st.style.color = '#666'; } },
+];
+const items = [];
+for (const c of CASES) {
+  const box = document.createElement('div'); box.className = 'box';
+  const h = document.createElement('h2'); h.textContent = c.title;
+  const st = document.createElement('div'); st.className = 'stage';
+  const vd = document.createElement('div'); vd.className = 'verdict wait'; vd.textContent = 'starting…';
+  const meta = document.createElement('div'); meta.className = 'meta';
+  box.append(h, st, vd, meta); document.getElementById('row').append(box);
+  const v = document.createElement('video'); v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto'; v.src = FILE;
+  c.setup(v, st);
+  v.play().catch(e => { meta.textContent = 'play() refused: ' + e.name; });
+  items.push({ c, v, vd, meta, last: null, lastAt: performance.now(), fps: 0, samples: [] });
+}
+setInterval(() => {
+  const now = performance.now();
+  for (const it of items) {
+    const q = it.v.getVideoPlaybackQuality ? it.v.getVideoPlaybackQuality() : null;
+    const dec = q ? q.totalVideoFrames : 0;
+    if (it.last != null) { it.fps = (dec - it.last) / ((now - it.lastAt) / 1000); it.samples.push(it.fps); if (it.samples.length > 5) it.samples.shift(); }
+    it.last = dec; it.lastAt = now;
+    if (it.samples.length >= 3) {
+      const avg = it.samples.reduce((a, b) => a + b, 0) / it.samples.length;
+      it.vd.textContent = `${avg.toFixed(1)} frames/s decoded`;
+      it.vd.className = 'verdict ' + (avg >= 20 ? 'ok' : avg >= 5 ? 'wait' : 'bad');
+    }
+    it.meta.textContent = `t=${it.v.currentTime.toFixed(1)} readyState=${it.v.readyState} decoded=${dec} dropped=${q ? q.droppedVideoFrames : '?'}${it.v.error ? ' ERROR ' + it.v.error.code : ''}`;
+  }
+  document.getElementById('report').textContent = [navigator.userAgent, ...items.map(it => `${it.c.id}: ${it.vd.textContent} — ${it.meta.textContent}`)].join('\n');
+}, 1000);
+document.getElementById('copy').onclick = () => navigator.clipboard.writeText(document.getElementById('report').textContent).then(() => { document.getElementById('copied').textContent = 'copied — paste it in the chat'; });
+</script>
+</body>
+</html>
