@@ -77,6 +77,7 @@ function commit(rebuild = false, opts = {}) {
 }
 
 function restore(snapshot) {
+  logT('undo/redo restore');
   const next = JSON.parse(snapshot);
   next.transport = state.transport;  // playback is not part of the edit history
   state = next;
@@ -667,6 +668,7 @@ function updateDiag() {
     `transport playing=${state.transport.playing} clock=${C.transportTime(state.transport).toFixed(2)} volume=${state.transport.volume} previewVideo=${previewMedia} videoPath=${state.videoPath || 'direct'}`,
     `output=${o ? o.name : '-'} surfaces=${o ? o.surfaces.map(s => `${s.name}[${s.visible ? 'on' : 'off'},${s.fill},${state.media.find(m => m.id === s.mediaId)?.name ?? 'none'}]`).join(' ') : '-'}`,
     ...(media ? media.lines(state.transport) : ['no media provider']),
+    'transport log: ' + (tlog.length ? tlog.join(' | ') : '(nothing yet)'),
   ].join('\n');
 }
 
@@ -722,9 +724,12 @@ function longestDuration() {
   for (const m of state.media) { const i = mediaInfo.get(m.id); if (i && i.duration > d) d = i.duration; }
   return d;
 }
+const tlog = [];
+function logT(what) { tlog.push(`${new Date().toLocaleTimeString()} ${what} -> playing=${state.transport.playing}`); if (tlog.length > 8) tlog.shift(); }
 function play() {
   diag.playPresses = (diag.playPresses || 0) + 1;
   const tr = state.transport;
+  setTimeout(() => logT('play()'), 0);
   if (tr.playing) { tr.pausedAt = C.transportTime(tr); tr.playing = false; }
   else {
     tr.startedAt = Date.now(); tr.playing = true;
@@ -735,6 +740,7 @@ function play() {
 }
 function stop() {
   const tr = state.transport;
+  setTimeout(() => logT('stop()'), 0);
   tr.playing = false; tr.pausedAt = 0;
   commit(false, { history: false });
 }
@@ -768,6 +774,7 @@ function importShow(file) {
     const raw = JSON.parse(txt);
     if (raw.version !== 1 || !Array.isArray(raw.outputs)) throw new Error('bad file');
     state = normalize(raw);
+    logT('Open show file');
     mediaInfo.clear(); probed.clear();
     commit(true);
     toast(`Opened ${file.name}`);
@@ -809,7 +816,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && !typing && (e.key === 'z' || e.key === 'Z')) { e.shiftKey ? redo() : undo(); e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && !typing && (e.key === 'y' || e.key === 'Y')) { redo(); e.preventDefault(); return; }
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-  if (e.code === 'Space') { play(); e.preventDefault(); }
+  if (e.code === 'Space') { if (tag === 'BUTTON') e.target.blur(); play(); e.preventDefault(); }
 });
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files?.length) addMediaFiles(e.dataTransfer.files); });
