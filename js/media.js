@@ -6,6 +6,7 @@ export class MediaProvider {
     this.gl = gl;
     this.audio = audio;
     this.items = new Map();
+    this.posters = new Map();   // mediaId -> {src, tex, uploaded}: a still frame used when the file itself is not loaded
     this.lastCorrect = 0;
     this.onMeta = null;    // (id, {duration, width, height})
     this.onError = null;   // (id)
@@ -61,10 +62,32 @@ export class MediaProvider {
     this.items.delete(id);
   }
 
+  // A still frame (canvas or image) to show when this window is not decoding the file.
+  setPoster(id, src) {
+    const old = this.posters.get(id);
+    if (old) this.gl.deleteTexture(old.tex);
+    const gl = this.gl, tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.posters.set(id, { src, tex, uploaded: false });
+  }
+
   // Returns {tex} when a frame is available, uploading the newest frame first.
   texture(id) {
     const it = this.items.get(id);
-    if (!it) return null;
+    if (!it) {
+      const p = this.posters.get(id);
+      if (!p) return null;
+      if (!p.uploaded) {
+        this.gl.bindTexture(this.gl.TEXTURE_2D, p.tex);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, p.src);
+        p.uploaded = true;
+      }
+      return p;
+    }
     const gl = this.gl, el = it.el;
     if (it.kind === 'image') {
       if (!it.uploaded && el.complete && el.naturalWidth) {

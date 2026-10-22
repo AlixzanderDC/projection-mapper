@@ -101,7 +101,16 @@ Projector window: **F** or double-click = fullscreen · **E** show/hide handles 
 - **Add files…** loads content for this session only (it is not copied anywhere); after a reload those entries show as *missing* until you add the same files again.
 - Video: MP4 (H.264) and WebM (VP9/AV1) play in every browser. HEVC/H.265 plays in Chrome and Edge but not Firefox. ProRes and other editing codecs do not play in browsers — export a delivery file.
 - Audio plays from the control window only; projector windows are muted.
-- Each window decodes only the files its surfaces show. The control window also decodes what the preview shows, plus anything audible. On a slow machine, untick **Preview video here** and drop **Audio** to 0 while running a show so the control window does no decoding at all.
+- Each window decodes only the files its surfaces show. The control window decodes nothing by default: its preview shows a still frame of each file. Tick **Play video in this preview** or raise **Audio** above 0 and it starts decoding too.
+
+## Memory
+
+Almost all of the memory is video decoders: one per file, per window that shows it, and a 4K H.264 decoder in Chrome is several hundred MB by itself. To keep it down:
+
+- Leave **Play video in this preview** off and **Audio** at 0 in the control window unless you need them.
+- Encode each file at the resolution of the projector that shows it. A 1920×1080 projector gains nothing from a 4K file, and the decoder for it is four times the size.
+- One file per projector beats one 4K file cropped across two projectors: each projector window would otherwise decode the whole 4K frame.
+- Close projector windows you are not using; a hidden surface still costs nothing, but an open window with a visible video surface decodes.
 - Show file: `*.pmap.json`, plain JSON. Media are referenced by path (`media/clip.mp4`), so a show plus its `media/` folder is portable.
 
 ## How it works

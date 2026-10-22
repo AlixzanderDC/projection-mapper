@@ -27,7 +27,7 @@ export function defaultState() {
     meshDensity: 48,            // subdivisions per surface edge (quality of curves)
     media: [],                  // {id, name, url, kind, persistent, missing?}
     outputs: [],                // see makeOutput
-    transport: { playing: false, startedAt: 0, pausedAt: 0, rate: 1, loop: true, volume: 1 },
+    transport: { playing: false, startedAt: 0, pausedAt: 0, rate: 1, loop: true, volume: 0 },
     selection: { outputId: null, surfaceId: null, point: null },
   };
 }

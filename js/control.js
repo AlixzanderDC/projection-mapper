@@ -14,7 +14,7 @@ const mediaInfo = new Map();      // mediaId -> {duration,width,height,error}
 let screens = null;               // Chrome/Edge Window Management API, when granted
 
 let state = loadState();
-let previewMedia = true;
+let previewMedia = false;   // off by default: the preview shows poster frames, so this window decodes nothing
 
 // ---------------------------------------------------------------- persistence + sync
 
@@ -204,7 +204,7 @@ function addMediaFiles(files) {
     if (!kind) continue;
     const url = URL.createObjectURL(f);
     const existing = state.media.find(m => m.name === f.name && m.missing);
-    if (existing) { existing.url = url; existing.missing = false; }
+    if (existing) { existing.url = url; existing.missing = false; probed.delete(existing.id); mediaInfo.delete(existing.id); }
     else state.media.push({ id: C.uid(), name: f.name, url, kind, persistent: false });
     n++;
   }
@@ -609,10 +609,10 @@ function frame() {
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (o && renderer) {
-    renderer.render(o, state, previewMedia ? media : null);
+    renderer.render(o, state, media);
     drawOverlay(ctx, o, state, overlayCanvas.width / dpr, overlayCanvas.height / dpr, { density: state.meshDensity, handles: true });
     const st = media ? media.stats() : { videos: 0, dropped: 0, errors: 0 };
-    $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height} · ${fps} fps · ${frameMs.toFixed(1)} ms (worst ${worstMs.toFixed(0)}) · ${st.videos} video${st.videos === 1 ? '' : 's'} decoding here` + (st.dropped ? ` · ${st.dropped} dropped` : '') + (st.errors ? ` · ${st.errors} cannot play` : '');
+    $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height} · ${fps} fps · ${frameMs.toFixed(1)} ms (worst ${worstMs.toFixed(0)}) · ${st.videos ? st.videos + ' video' + (st.videos === 1 ? '' : 's') + ' decoding here' : 'poster frames, no decoding here'}` + (st.dropped ? ` · ${st.dropped} dropped` : '') + (st.errors ? ` · ${st.errors} cannot play` : '');
   } else {
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     $('#previewInfo').textContent = '';
@@ -630,14 +630,32 @@ function probeMedia() {
     if (m.missing || probed.has(m.id) || mediaInfo.has(m.id)) continue;
     probed.add(m.id);
     if (m.kind === 'video') {
+      // One short-lived element: read the metadata, grab one frame as a poster, then release the decoder.
       const v = document.createElement('video');
-      v.preload = 'metadata'; v.muted = true;
-      v.addEventListener('loadedmetadata', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: false }); rebuildLists(); } v.removeAttribute('src'); v.load(); });
+      v.preload = 'metadata'; v.muted = true; v.playsInline = true;
+      const release = () => { v.removeAttribute('src'); v.load(); };
+      v.addEventListener('loadedmetadata', () => {
+        if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: false }); rebuildLists(); }
+        try { v.currentTime = Math.min(1, (v.duration || 0) / 2); } catch { release(); }
+      });
+      v.addEventListener('seeked', () => {
+        try {
+          const c = document.createElement('canvas');
+          const scale = Math.min(1, 640 / (v.videoWidth || 640));
+          c.width = Math.max(1, Math.round(v.videoWidth * scale)); c.height = Math.max(1, Math.round(v.videoHeight * scale));
+          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+          if (media) media.setPoster(m.id, c);
+        } catch { /* no frame */ }
+        release();
+      });
       v.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
       v.src = m.url;
     } else {
       const i = new Image();
-      i.addEventListener('load', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: i.naturalWidth, height: i.naturalHeight, error: false }); rebuildLists(); } });
+      i.addEventListener('load', () => {
+        if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: i.naturalWidth, height: i.naturalHeight, error: false }); rebuildLists(); }
+        if (media) media.setPoster(m.id, i);
+      });
       i.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
       i.src = m.url;
     }
@@ -692,7 +710,7 @@ function importShow(file) {
     const raw = JSON.parse(txt);
     if (raw.version !== 1 || !Array.isArray(raw.outputs)) throw new Error('bad file');
     state = normalize(raw);
-    mediaInfo.clear();
+    mediaInfo.clear(); probed.clear();
     commit(true);
     toast(`Opened ${file.name}`);
   }).catch(() => toast('That is not a show file from this app.'));
@@ -701,7 +719,7 @@ function importShow(file) {
 // ---------------------------------------------------------------- wiring
 
 $('#showName').addEventListener('change', e => { state.name = e.target.value.trim() || 'Untitled show'; commit(); });
-$('#btnNew').addEventListener('click', () => { if (confirm('Start a new empty show? The current one stays saved only if you exported it.')) { state = C.defaultState(); mediaInfo.clear(); commit(true); } });
+$('#btnNew').addEventListener('click', () => { if (confirm('Start a new empty show? The current one stays saved only if you exported it.')) { state = C.defaultState(); mediaInfo.clear(); probed.clear(); commit(true); } });
 $('#btnImport').addEventListener('click', () => $('#fileImport').click());
 $('#fileImport').addEventListener('change', e => { if (e.target.files[0]) importShow(e.target.files[0]); e.target.value = ''; });
 $('#btnExport').addEventListener('click', exportShow);
