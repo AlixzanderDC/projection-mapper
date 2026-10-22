@@ -117,9 +117,20 @@ export class MediaProvider {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
         it.uploaded = true;
         it.lastT = el.currentTime;
-      } catch { /* frame not ready yet */ }
+        it.uploads = (it.uploads || 0) + 1;
+      } catch (e) { it.uploadError = e.name; }
     }
     return it.uploaded ? it : null;
+  }
+
+  // One line per element for the on-screen diagnostics.
+  lines(transport) {
+    const t = transportTime(transport);
+    return [...this.items.values()].map(it => {
+      const v = it.el, q = v.getVideoPlaybackQuality?.();
+      if (it.kind === 'image') return `${it.id} image uploaded=${it.uploaded}`;
+      return `${it.kind} rs=${v.readyState} ns=${v.networkState} ${v.paused ? 'PAUSED' : 'playing'} t=${v.currentTime.toFixed(2)} clock=${t.toFixed(2)} rate=${v.playbackRate.toFixed(2)} dec=${q ? q.totalVideoFrames : '-'} drop=${q ? q.droppedVideoFrames : '-'} up=${it.uploads || 0} ${v.error ? 'ERR ' + v.error.code : ''}${it.playError ? ' play:' + it.playError : ''}${it.uploadError ? ' upload:' + it.uploadError : ''}`;
+    });
   }
 
   // Diagnostics for the UI: how many videos are decoding here, and dropped frames (Chrome/Edge).

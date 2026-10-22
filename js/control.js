@@ -606,11 +606,18 @@ let fpsCount = 0, fpsAt = performance.now(), fps = 0;
 let frameMs = 0, worstMs = 0, needFit = true;
 window.addEventListener('resize', () => { needFit = true; });
 
+const diag = { errors: 0, lastError: '', frames: 0 };
 function frame() {
+  try { frameBody(); } catch (e) { diag.errors++; diag.lastError = (e && e.message) || String(e); }
+  if (renderer && renderer.lost && !diag.reloading) { diag.reloading = true; toast('GPU context lost — reloading in 2 s', 5000); setTimeout(() => location.reload(), 2000); }
+  requestAnimationFrame(frame);
+}
+function frameBody() {
   const t0 = performance.now();
+  diag.frames++;
   if (++fpsCount >= 30) { fps = Math.round(fpsCount * 1000 / (t0 - fpsAt)); fpsCount = 0; fpsAt = t0; worstMs = 0; }
   if (media) { media.uploadVia = state.videoPath === 'canvas' ? 'canvas' : 'direct'; media.sync(state, usedInControl()); media.tick(state.transport); }
-  if (activeTab === 'camera') { camera.draw(); updateTransportUI(); requestAnimationFrame(frame); return; }
+  if (activeTab === 'camera') { camera.draw(); updateTransportUI(); return; }
   if (needFit) { fitPreview(); needFit = false; }
   const o = currentOutput();
   const ctx = overlayCanvas.getContext('2d');
@@ -630,7 +637,22 @@ function frame() {
   updateTransportUI();
   frameMs = performance.now() - t0;
   if (frameMs > worstMs) worstMs = frameMs;
-  requestAnimationFrame(frame);
+  updateDiag();
+}
+
+let showDiag = false;
+function updateDiag() {
+  const box = $('#diag');
+  if (!showDiag) { if (!box.hidden) box.hidden = true; return; }
+  if (box.hidden) box.hidden = false;
+  if (diag.frames % 10) return;
+  const o = currentOutput();
+  box.textContent = [
+    `CONTROL  frames=${diag.frames} fps=${fps} frameMs=${frameMs.toFixed(1)} errors=${diag.errors}${diag.lastError ? ' last=' + diag.lastError : ''} glLost=${renderer ? renderer.lost : 'no renderer'}`,
+    `transport playing=${state.transport.playing} clock=${C.transportTime(state.transport).toFixed(2)} volume=${state.transport.volume} previewVideo=${previewMedia} videoPath=${state.videoPath || 'direct'}`,
+    `output=${o ? o.name : '-'} surfaces=${o ? o.surfaces.map(s => `${s.name}[${s.visible ? 'on' : 'off'},${s.fill},${state.media.find(m => m.id === s.mediaId)?.name ?? 'none'}]`).join(' ') : '-'}`,
+    ...(media ? media.lines(state.transport) : ['no media provider']),
+  ].join('\n');
 }
 
 // Cheap metadata probe (no decoding) for files the control window is not playing.
@@ -749,6 +771,7 @@ $('#fileMedia').addEventListener('change', e => { addMediaFiles(e.target.files);
 $('#btnScan').addEventListener('click', scanFolder);
 $('#btnAddOutput').addEventListener('click', addOutput);
 $('#chkPreviewMedia').addEventListener('change', e => { previewMedia = e.target.checked; });
+$('#chkDiag').addEventListener('change', e => { showDiag = e.target.checked; });
 $('#btnPlay').addEventListener('click', play);
 $('#btnStop').addEventListener('click', stop);
 $('#chkLoop').addEventListener('change', e => { state.transport.loop = e.target.checked; commit(false, { history: false }); });

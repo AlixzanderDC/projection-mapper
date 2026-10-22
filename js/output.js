@@ -69,6 +69,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { bc.postMessage({ type: 'redo' }); e.preventDefault(); return; }
   if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); e.preventDefault(); }
   else if ((e.key === 'e' || e.key === 'E') && o) send({ type: 'toggle', outputId: o.id, key: 'editOverlay' });
+  else if (e.key === 'd' || e.key === 'D') { diag.show = !diag.show; if (!diag.show) hud.style.display = 'none'; }
   else if ((e.key === 't' || e.key === 'T') && o) send({ type: 'toggle', outputId: o.id, key: 'testPattern' });
 });
 overlay.addEventListener('dblclick', toggleFullscreen);
@@ -81,7 +82,14 @@ async function keepAwake() {
 keepAwake();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
 
+const diag = { errors: 0, lastError: '', frames: 0, show: false };
 function frame() {
+  try { frameBody(); } catch (e) { diag.errors++; diag.lastError = (e && e.message) || String(e); hud.style.display = ''; hud.textContent = `Error in frame loop (${diag.errors}): ${diag.lastError}`; }
+  if (renderer && renderer.lost && !diag.reloading) { diag.reloading = true; setTimeout(() => location.reload(), 2000); }
+  requestAnimationFrame(frame);
+}
+function frameBody() {
+  diag.frames++;
   const o = output();
   const dpr = window.devicePixelRatio || 1;
   const ctx = overlay.getContext('2d');
@@ -114,15 +122,21 @@ function frame() {
     renderer.render(o, state, media);
     drawOverlay(ctx, o, state, W, H, { density: state.meshDensity, handles: o.editOverlay });
     document.title = o.name;
-    if (o.editOverlay) {
+    if (diag.show) {
+      hud.style.display = '';
+      hud.textContent = [`PROJECTOR frames=${diag.frames} fps=${fps} errors=${diag.errors}${diag.lastError ? ' last=' + diag.lastError : ''} glLost=${renderer.lost} size=${glCanvas.width}x${glCanvas.height}`,
+        `transport playing=${state.transport.playing} clock=${C.transportTime(state.transport).toFixed(2)} videoPath=${state.videoPath || 'direct'} stateAge=${((Date.now() - lastStateAt) / 1000).toFixed(1)}s`,
+        `surfaces=${o.surfaces.map(s => `${s.name}[${s.visible ? 'on' : 'off'},${s.fill}]`).join(' ')}`,
+        ...media.lines(state.transport)].join('\n');
+      hud.style.whiteSpace = 'pre-wrap';
+    } else if (o.editOverlay) {
       hud.style.display = '';
       const stq = media.stats();
       hud.textContent = `${o.name} · ${glCanvas.width}×${glCanvas.height} · ${fps} fps · ${stq.videos} video${stq.videos === 1 ? '' : 's'}${stq.dropped ? ` · ${stq.dropped} dropped` : ''}` + (document.fullscreenElement ? '' : ' · F or double-click = fullscreen') + ' · E = hide handles · T = test pattern · drag points, arrows nudge';
     } else {
       hud.style.display = 'none';
     }
-    document.body.classList.toggle('nocursor', !o.editOverlay);
+    document.body.classList.toggle('nocursor', !o.editOverlay && !diag.show);
   }
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

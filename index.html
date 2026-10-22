@@ -59,11 +59,13 @@
       <canvas id="preview"></canvas>
       <canvas id="previewOverlay" tabindex="0"></canvas>
       <div id="previewEmpty" class="empty">Add a projector to start.</div>
+      <pre id="diag" class="diag" hidden></pre>
       <div id="previewBadge" class="badge" hidden>STILL FRAME — projector windows play normally. Tick "Play video in this preview" to see motion here.</div>
     </div>
     <div class="previewBar">
       <label class="check"><input type="checkbox" id="chkPreviewMedia" checked><span>Play video in this preview</span></label>
       <span class="hint">(untick to save memory: still frames here, projectors unaffected)</span>
+      <label class="check"><input type="checkbox" id="chkDiag"><span>Diagnostics</span></label>
       <span id="previewInfo" class="hint"></span>
     </div>
   </section>
