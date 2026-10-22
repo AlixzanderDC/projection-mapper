@@ -107,6 +107,19 @@ export class MediaProvider {
     return it.uploaded ? it : null;
   }
 
+  // Diagnostics for the UI: how many videos are decoding here, and dropped frames (Chrome/Edge).
+  stats() {
+    let videos = 0, dropped = 0, errors = 0;
+    for (const it of this.items.values()) {
+      if (it.kind === 'image') continue;
+      videos++;
+      if (it.playError) errors++;
+      const q = it.el.getVideoPlaybackQuality?.();
+      if (q) dropped += q.droppedVideoFrames;
+    }
+    return { videos, dropped, errors };
+  }
+
   // Drive every video/audio element from the shared transport clock.
   // Seeking is expensive (Chrome re-decodes from the last keyframe, which can be seconds of
   // video), so small drift is corrected by nudging playbackRate; we only seek for big jumps,
