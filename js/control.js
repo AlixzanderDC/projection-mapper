@@ -679,24 +679,11 @@ function probeMedia() {
     if (m.missing || probed.has(m.id) || mediaInfo.has(m.id)) continue;
     probed.add(m.id);
     if (m.kind === 'video') {
-      // One short-lived element: read the metadata, grab one frame as a poster, then release the decoder.
+      // Metadata only: no decoding, no seeking. Hardware decoders are a scarce resource
+      // (a Qualcomm chip has a handful), and a stuck thumbnail seek can hold one forever.
       const v = document.createElement('video');
-      v.preload = 'metadata'; v.muted = true; v.playsInline = true;
-      const release = () => { v.removeAttribute('src'); v.load(); };
-      v.addEventListener('loadedmetadata', () => {
-        if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: false }); rebuildLists(); }
-        try { v.currentTime = Math.min(1, (v.duration || 0) / 2); } catch { release(); }
-      });
-      v.addEventListener('seeked', () => {
-        try {
-          const c = document.createElement('canvas');
-          const scale = Math.min(1, 640 / (v.videoWidth || 640));
-          c.width = Math.max(1, Math.round(v.videoWidth * scale)); c.height = Math.max(1, Math.round(v.videoHeight * scale));
-          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-          if (media) media.setPoster(m.id, c);
-        } catch { /* no frame */ }
-        release();
-      });
+      v.preload = 'metadata'; v.muted = true;
+      v.addEventListener('loadedmetadata', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: false }); rebuildLists(); } v.removeAttribute('src'); v.load(); });
       v.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
       v.src = m.url;
     } else if (m.kind === 'audio') {
