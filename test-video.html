@@ -30,7 +30,10 @@
 </div>
 <pre id="report" class="meta"></pre>
 <script>
-const FILE = new URLSearchParams(location.search).get('file') || 'media/wall_cross_vines_roses_1920x1080.mp4';
+const PARAMS = new URLSearchParams(location.search);
+const FILE = PARAMS.get('file') || 'media/wall_cross_vines_roses_1920x1080.mp4';
+const ONLY = PARAMS.get('only');   // e.g. ?only=B runs just the app's path, for a real throughput number
+const ON = k => !ONLY || ONLY.toUpperCase().includes(k);
 document.getElementById('file').textContent = FILE;
 const v = document.getElementById('v');
 v.src = FILE;
@@ -70,13 +73,13 @@ function loop() {
   frames++;
   if (performance.now() - fpsAt > 1000) { fps = frames; frames = 0; fpsAt = performance.now(); }
   if (v.readyState >= 2) {
-    if (B) { B.upload(v); B.draw(); }
-    c2.drawImage(v, 0, 0, 320, 180);
-    if (D) { if (mid.width !== v.videoWidth) { mid.width = v.videoWidth; mid.height = v.videoHeight; } midCtx.drawImage(v, 0, 0); D.upload(mid); D.draw(); }
+    if (B && ON('B')) { B.upload(v); B.draw(); }
+    if (ON('C') || ON('D')) c2.drawImage(v, 0, 0, 320, 180);
+    if (D && ON('D')) { if (mid.width !== v.videoWidth) { mid.width = v.videoWidth; mid.height = v.videoHeight; } midCtx.drawImage(v, 0, 0); D.upload(mid); D.draw(); }
   }
   requestAnimationFrame(loop);
 }
-if ('requestVideoFrameCallback' in v && E) {
+if ('requestVideoFrameCallback' in v && E && ON('E')) {
   const onFrame = () => { rvfcCount++; createImageBitmap(v).then(bm => { bitmaps++; E.upload(bm); E.draw(); bm.close(); }).catch(e => { E.lastErr = e.name; }); v.requestVideoFrameCallback(onFrame); };
   v.requestVideoFrameCallback(onFrame);
 } else if (E) E.lastErr = 'requestVideoFrameCallback not supported';
@@ -89,6 +92,7 @@ function judge() {
     const el = $('v' + k);
     if (!started) { el.textContent = 'press Start'; el.className = 'verdict wait'; continue; }
     if (h.length < 4) { el.textContent = 'checking…'; el.className = 'verdict wait'; continue; }
+    if (!ON(k)) { el.textContent = 'skipped'; el.className = 'verdict wait'; continue; }
     const distinct = new Set(h).size;
     el.textContent = distinct > 1 ? 'MOVING' : 'FROZEN'; el.className = 'verdict ' + (distinct > 1 ? 'ok' : 'bad');
   }
@@ -97,11 +101,12 @@ function judge() {
   $('mC').textContent = `page ${fps} fps`;
   $('mD').textContent = D ? `uploads ${D.uploads}  ${D.lastErr || 'no GL error'}` : 'WebGL2 unavailable';
   $('mE').textContent = E ? `video frames ${rvfcCount}  bitmaps ${bitmaps}  ${E.lastErr || 'no error'}` : 'WebGL2 unavailable';
-  $('report').textContent = [navigator.userAgent, `file ${FILE}`, ...['A', 'B', 'C', 'D', 'E'].map(k => `${k}: ${$('v' + k).textContent} — ${$('m' + k).textContent.replace(/\n/g, ' ')}`)].join('\n');
+  $('report').textContent = [navigator.userAgent + (ONLY ? `  (only ${ONLY})` : ''), 'arch: ' + (window.__arch || '?'), `file ${FILE}`, ...['A', 'B', 'C', 'D', 'E'].map(k => `${k}: ${$('v' + k).textContent} — ${$('m' + k).textContent.replace(/\n/g, ' ')}`)].join('\n');
 }
 $('start').onclick = () => { started = true; v.play().catch(e => { $('mA').textContent = 'play() refused: ' + e.name; }); };
 $('copy').onclick = () => { navigator.clipboard.writeText($('report').textContent).then(() => { $('copied').textContent = 'copied — paste it in the chat'; }); };
 v.addEventListener('loadedmetadata', () => { started = true; v.play().catch(() => {}); });
+if (navigator.userAgentData?.getHighEntropyValues) navigator.userAgentData.getHighEntropyValues(['architecture', 'bitness']).then(d => { window.__arch = d.architecture + ' ' + d.bitness; }).catch(() => {});
 requestAnimationFrame(loop);
 setInterval(judge, 500);
 </script>
