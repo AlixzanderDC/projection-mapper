@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Projection Mapper</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <strong class="brand">Projection Mapper</strong>
+  <input id="showName" type="text" class="name" title="Show name" spellcheck="false">
+  <button id="btnNew" type="button">New</button>
+  <button id="btnImport" type="button">Open…</button>
+  <button id="btnExport" type="button">Save as…</button>
+  <span class="spacer"></span>
+  <span id="toast" class="toast"></span>
+  <button id="btnOpenAll" type="button" class="primary">Open all projector windows</button>
+</header>
+
+<main class="layout">
+  <aside class="left">
+    <section>
+      <h2>Media</h2>
+      <div id="mediaList" class="list"></div>
+      <div class="row">
+        <button id="btnAddMedia" type="button">Add files…</button>
+        <button id="btnScan" type="button">Rescan media/</button>
+      </div>
+      <p class="hint">Files dropped into the <code>media/</code> folder survive reloads. "Add files…" is for this session only.</p>
+      <input id="fileMedia" type="file" multiple accept="video/*,image/*" hidden>
+    </section>
+    <section>
+      <h2>Projectors</h2>
+      <div id="outputList" class="list"></div>
+      <div class="row"><button id="btnAddOutput" type="button" class="primary">Add projector</button></div>
+    </section>
+    <details class="help">
+      <summary>Workflow &amp; keys</summary>
+      <ol>
+        <li>Add a projector, open its window, drag that window onto the projector's display and press <b>F</b>.</li>
+        <li>Add a surface and pick a source. Drag its corners onto the real object (in this preview or straight on the projector).</li>
+        <li>Curved object? Raise the grid to 3–7 columns/rows and pull the inner points.</li>
+        <li>Two projectors on one wall? Give each a surface with a crop (Split into 2), overlap them, and set the edge blend on the touching edges.</li>
+      </ol>
+      <p><b>Space</b> play/pause · <b>Arrows</b> nudge (Shift = 10px) · <b>Tab</b> next point · <b>Esc</b> deselect<br>
+      In a projector window: <b>F</b> fullscreen · <b>E</b> handles · <b>T</b> test pattern</p>
+    </details>
+  </aside>
+
+  <section class="center">
+    <div id="previewWrap" class="previewWrap">
+      <canvas id="preview"></canvas>
+      <canvas id="previewOverlay" tabindex="0"></canvas>
+      <div id="previewEmpty" class="empty">Add a projector to start.</div>
+    </div>
+    <div class="previewBar">
+      <label class="check"><input type="checkbox" id="chkPreviewMedia" checked><span>Preview video here</span></label>
+      <span id="previewInfo" class="hint"></span>
+    </div>
+  </section>
+
+  <aside class="right"><div id="inspector"></div></aside>
+</main>
+
+<footer class="transport">
+  <button id="btnPlay" type="button" class="big" title="Play / pause (Space)">▶</button>
+  <button id="btnStop" type="button" class="big" title="Stop">■</button>
+  <span id="timeDisplay" class="time">0:00.0 / 0:00.0</span>
+  <input id="scrub" type="range" min="0" max="1" step="0.01" value="0">
+  <label class="check"><input type="checkbox" id="chkLoop" checked><span>Loop</span></label>
+  <label class="inline">Speed <select id="selRate"><option>0.5</option><option>1</option><option>1.5</option><option>2</option></select></label>
+  <label class="inline">Audio <input id="vol" type="range" min="0" max="1" step="0.01" value="1" title="Audio plays from this window"></label>
+</footer>
+<input id="fileImport" type="file" accept=".json,application/json" hidden>
+<script type="module" src="js/control.js"></script>
+</body>
+</html>

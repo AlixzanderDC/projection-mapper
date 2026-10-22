@@ -1,0 +1,571 @@
+// control.js — the control window: media bin, outputs, inspector, preview, transport.
+import * as C from './core.js';
+import { Renderer, drawOverlay } from './render.js';
+import { MediaProvider } from './media.js';
+import { Editor } from './editor.js';
+
+const $ = s => document.querySelector(s);
+const bc = new BroadcastChannel(C.CHANNEL);
+const outputStatus = new Map();   // outputId -> {width,height,fullscreen,lastSeen}
+const outputWindows = new Map();  // outputId -> Window
+const mediaInfo = new Map();      // mediaId -> {duration,width,height,error}
+let screens = null;               // Chrome/Edge Window Management API, when granted
+
+let state = loadState();
+let previewMedia = true;
+
+// ---------------------------------------------------------------- persistence + sync
+
+function normalize(raw) {
+  const d = C.defaultState();
+  const s = Object.assign(d, raw);
+  s.transport = Object.assign(C.defaultState().transport, raw.transport || {}, { playing: false, pausedAt: 0 });
+  s.selection = Object.assign(C.defaultState().selection, raw.selection || {});
+  for (const m of s.media) if (!m.persistent) m.missing = true; // blob: URLs die with the page
+  return s;
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(C.STORAGE_KEY);
+    return raw ? normalize(JSON.parse(raw)) : C.defaultState();
+  } catch { return C.defaultState(); }
+}
+
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => localStorage.setItem(C.STORAGE_KEY, JSON.stringify(state)), 250);
+}
+
+let bcTimer = null;
+function broadcast() {
+  if (bcTimer) return;
+  bcTimer = setTimeout(() => { bcTimer = null; bc.postMessage({ type: 'state', state }); }, 8);
+}
+
+function commit(rebuild = false) {
+  save();
+  broadcast();
+  if (rebuild) { rebuildLists(); rebuildInspector(); }
+}
+
+bc.onmessage = ({ data: msg }) => {
+  switch (msg.type) {
+    case 'hello':
+      bc.postMessage({ type: 'state', state });
+      break;
+    case 'op':
+      if (C.applyOp(state, msg.op)) commit(msg.op.type === 'select' || msg.op.type === 'toggle');
+      break;
+    case 'status': {
+      outputStatus.set(msg.outputId, { ...msg, lastSeen: Date.now() });
+      const o = C.findOutput(state, msg.outputId);
+      if (o && (o.width !== msg.width || o.height !== msg.height)) {
+        o.width = msg.width; o.height = msg.height;
+        commit(false);
+        updateStatusTexts();
+      }
+      updateStatusTexts();
+      break;
+    }
+  }
+};
+
+// ---------------------------------------------------------------- tiny DOM helpers
+
+function el(tag, attrs = {}, ...children) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v;
+    else if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of children) if (c != null) e.append(c);
+  return e;
+}
+const btn = (text, onclick, cls = '') => el('button', { class: cls, type: 'button', onclick }, text);
+const field = (label, ...inputs) => el('label', { class: 'field' }, el('span', { text: label }), ...inputs);
+
+function textInput(value, onchange) {
+  const i = el('input', { type: 'text', value });
+  i.addEventListener('change', () => onchange(i.value.trim() || value));
+  return i;
+}
+function numInput(value, min, max, step, onchange) {
+  const i = el('input', { type: 'number', value, min, max, step });
+  if (onchange) i.addEventListener('change', () => onchange(C.clamp(parseFloat(i.value) || 0, min, max)));
+  return i;
+}
+function checkInput(label, value, onchange) {
+  const i = el('input', { type: 'checkbox' });
+  i.checked = !!value;
+  i.addEventListener('change', () => onchange(i.checked));
+  return el('label', { class: 'check' }, i, el('span', { text: label }));
+}
+function selectInput(value, options, onchange) {
+  const s = el('select');
+  for (const o of options) s.append(el('option', { value: o.value, text: o.label }));
+  s.value = value;
+  s.addEventListener('change', () => onchange(s.value));
+  return s;
+}
+function slider(label, value, min, max, step, oninput, fmt = v => String(v)) {
+  const out = el('output', { text: fmt(value) });
+  const i = el('input', { type: 'range', min, max, step, value });
+  i.addEventListener('input', () => { const v = parseFloat(i.value); out.textContent = fmt(v); oninput(v); });
+  i.addEventListener('dblclick', () => { i.value = value; i.dispatchEvent(new Event('input')); });
+  return el('label', { class: 'field slider' }, el('span', { text: label }), i, out);
+}
+
+let toastTimer = null;
+function toast(msg, ms = 4000) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+const fmtTime = s => {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60), r = s - m * 60;
+  return `${m}:${r.toFixed(1).padStart(4, '0')}`;
+};
+
+// ---------------------------------------------------------------- media
+
+function addMediaFiles(files) {
+  let n = 0;
+  for (const f of files) {
+    const kind = C.kindFromName(f.name) || (f.type.startsWith('video') ? 'video' : f.type.startsWith('image') ? 'image' : null);
+    if (!kind) continue;
+    const url = URL.createObjectURL(f);
+    const existing = state.media.find(m => m.name === f.name && m.missing);
+    if (existing) { existing.url = url; existing.missing = false; }
+    else state.media.push({ id: C.uid(), name: f.name, url, kind, persistent: false });
+    n++;
+  }
+  toast(`${n} file(s) added (this session only — put files in media/ to keep them)`);
+  commit(true);
+}
+
+async function scanFolder() {
+  try {
+    const res = await fetch('media/', { cache: 'no-store' });
+    if (!res.ok) throw new Error(String(res.status));
+    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    let added = 0;
+    for (const a of doc.querySelectorAll('a[href]')) {
+      const href = a.getAttribute('href');
+      if (!href || href.endsWith('/') || href.startsWith('?') || href.startsWith('/') || href.includes('://')) continue;
+      const name = decodeURIComponent(href);
+      const kind = C.kindFromName(name);
+      if (!kind) continue;
+      const url = 'media/' + href;
+      if (state.media.some(m => m.url === url)) continue;
+      state.media.push({ id: C.uid(), name, url, kind, persistent: true });
+      added++;
+    }
+    toast(added ? `${added} file(s) added from media/` : 'No new files in media/');
+    commit(true);
+  } catch {
+    toast('Could not read media/ — start serve.ps1 and open http://127.0.0.1:8765/');
+  }
+}
+
+function removeMedia(m) {
+  state.media = state.media.filter(x => x !== m);
+  for (const o of state.outputs) for (const s of o.surfaces) if (s.mediaId === m.id) s.mediaId = null;
+  if (!m.persistent && m.url.startsWith('blob:')) URL.revokeObjectURL(m.url);
+  commit(true);
+}
+
+// ---------------------------------------------------------------- outputs
+
+function currentOutput() {
+  return C.findOutput(state, state.selection.outputId) || state.outputs[0] || null;
+}
+
+function addOutput() {
+  const o = C.makeOutput(state.outputs.length + 1);
+  state.outputs.push(o);
+  state.selection = { outputId: o.id, surfaceId: null, point: null };
+  commit(true);
+}
+
+function removeOutput(o) {
+  if (!confirm(`Delete ${o.name} and its ${o.surfaces.length} surface(s)?`)) return;
+  const w = outputWindows.get(o.id);
+  if (w && !w.closed) w.close();
+  state.outputs = state.outputs.filter(x => x !== o);
+  state.selection = { outputId: state.outputs[0]?.id ?? null, surfaceId: null, point: null };
+  commit(true);
+}
+
+function addSurface(o) {
+  const s = C.makeSurface(o.surfaces.length + 1, state.media.find(m => !m.missing)?.id ?? null);
+  o.surfaces.push(s);
+  state.selection = { outputId: o.id, surfaceId: s.id, point: null };
+  commit(true);
+}
+
+function openOutput(o, screen = null) {
+  const existing = outputWindows.get(o.id);
+  if (existing && !existing.closed) { existing.focus(); return; }
+  let feat = 'popup=yes,width=1280,height=720';
+  if (screen) feat = `popup=yes,left=${screen.left},top=${screen.top},width=${screen.availWidth},height=${screen.availHeight}`;
+  const w = window.open(`output.html?id=${encodeURIComponent(o.id)}`, `pmap-out-${o.id}`, feat);
+  if (!w) { toast('Popup blocked — allow popups for this site, then try again'); return; }
+  outputWindows.set(o.id, w);
+}
+
+async function detectScreens() {
+  if (!('getScreenDetails' in window)) {
+    toast('Display placement needs Chrome or Edge. In Firefox, drag the projector window onto the projector and press F.');
+    return;
+  }
+  try {
+    const d = await window.getScreenDetails();
+    screens = d.screens;
+    d.addEventListener('screenschange', () => { screens = d.screens; rebuildInspector(); });
+    rebuildInspector();
+  } catch {
+    toast('Display access was not granted.');
+  }
+}
+
+// ---------------------------------------------------------------- lists (left column)
+
+function isConnected(o) {
+  const st = outputStatus.get(o.id);
+  return !!st && Date.now() - st.lastSeen < 3000;
+}
+
+function rebuildLists() {
+  const ml = $('#mediaList');
+  ml.replaceChildren();
+  if (!state.media.length) ml.append(el('div', { class: 'emptyRow', text: 'No media yet.' }));
+  for (const m of state.media) {
+    const info = mediaInfo.get(m.id);
+    let meta = m.kind;
+    if (info?.error) meta = 'cannot load';
+    else if (info) meta = info.duration ? `${info.width}×${info.height} · ${fmtTime(info.duration)}` : `${info.width}×${info.height}`;
+    if (m.missing) meta = 'missing — Add files… to relink';
+    ml.append(el('div', { class: 'item' + (m.missing || info?.error ? ' warn' : '') },
+      el('div', { class: 'grow' }, el('div', { class: 'title', text: m.name }), el('div', { class: 'meta', text: meta })),
+      btn('×', () => removeMedia(m), 'icon')));
+  }
+
+  const ol = $('#outputList');
+  ol.replaceChildren();
+  if (!state.outputs.length) ol.append(el('div', { class: 'emptyRow', text: 'No projectors yet.' }));
+  const sel = state.selection;
+  const cur = currentOutput();
+  for (const o of state.outputs) {
+    const row = el('div', { class: 'item output' + (cur === o && !sel.surfaceId ? ' selected' : ''),
+      onclick: () => { state.selection = { outputId: o.id, surfaceId: null, point: null }; commit(true); } },
+      el('span', { class: 'dot' + (isConnected(o) ? ' on' : ''), title: isConnected(o) ? 'Window open' : 'Window not open' }),
+      el('div', { class: 'grow' }, el('div', { class: 'title', text: o.name }), el('div', { class: 'meta', text: `${o.width}×${o.height} · ${o.surfaces.length} surface(s)` })),
+      btn('Open', e => { e.stopPropagation(); openOutput(o); }, 'small'));
+    ol.append(row);
+    for (const s of o.surfaces) {
+      ol.append(el('div', { class: 'item surface' + (sel.surfaceId === s.id ? ' selected' : '') + (s.visible ? '' : ' hidden'),
+        onclick: () => { state.selection = { outputId: o.id, surfaceId: s.id, point: null }; commit(true); } },
+        el('div', { class: 'grow' }, el('div', { class: 'title', text: s.name }),
+          el('div', { class: 'meta', text: `${s.cols}×${s.rows} · ${state.media.find(m => m.id === s.mediaId)?.name ?? 'no source'}` }))));
+    }
+  }
+  $('#showName').value = state.name;
+  $('#previewEmpty').style.display = state.outputs.length ? 'none' : '';
+}
+
+function updateStatusTexts() {
+  document.querySelectorAll('[data-status-for]').forEach(n => {
+    const o = C.findOutput(state, n.dataset.statusFor);
+    if (o) n.textContent = statusText(o);
+  });
+  document.querySelectorAll('#outputList .dot').forEach((d, i) => {
+    const o = state.outputs[i];
+    if (o) d.classList.toggle('on', isConnected(o));
+  });
+}
+
+function statusText(o) {
+  const st = outputStatus.get(o.id);
+  if (!isConnected(o)) return 'Projector window: not open';
+  return `Projector window: ${st.width}×${st.height}${st.fullscreen ? ' · fullscreen' : ' · windowed (press F in it)'}`;
+}
+
+// ---------------------------------------------------------------- inspector (right column)
+
+function rebuildInspector() {
+  const box = $('#inspector');
+  box.replaceChildren();
+  const o = currentOutput();
+  const s = o && o.surfaces.find(x => x.id === state.selection.surfaceId);
+  if (s) box.append(surfaceInspector(o, s));
+  else if (o) box.append(outputInspector(o));
+  box.append(settingsPanel(!!o));
+  fitPreview();
+}
+
+function outputInspector(o) {
+  const box = el('div', { class: 'panel' });
+  box.append(el('h2', { text: 'Projector' }));
+  box.append(field('Name', textInput(o.name, v => { o.name = v; commit(true); })));
+  box.append(el('div', { class: 'status', 'data-status-for': o.id, text: statusText(o) }));
+  box.append(el('div', { class: 'row' }, btn('Open projector window', () => openOutput(o), 'primary'), btn('Detect displays', detectScreens)));
+  if (screens) {
+    const row = el('div', { class: 'row wrap' });
+    screens.forEach((sc, i) => row.append(btn(`Open on ${sc.label || 'display ' + (i + 1)} (${sc.width}×${sc.height})`, () => openOutput(o, sc), 'small')));
+    box.append(row);
+  }
+  box.append(el('div', { class: 'row' },
+    field('Width', numInput(o.width, 320, 8192, 1, v => { o.width = v; commit(true); })),
+    field('Height', numInput(o.height, 240, 8192, 1, v => { o.height = v; commit(true); }))));
+  box.append(el('p', { class: 'hint', text: 'Size follows the projector window once it is open. Set it by hand only for planning.' }));
+  box.append(checkInput('Show handles on the projector (E)', o.editOverlay, v => { o.editOverlay = v; commit(); }));
+  box.append(checkInput('Test pattern (T)', o.testPattern, v => { o.testPattern = v; commit(); }));
+  box.append(slider('Brightness', o.brightness, 0, 1, 0.01, v => { o.brightness = v; commit(); }, v => v.toFixed(2)));
+  box.append(slider('Gamma', o.gamma, 0.5, 3, 0.01, v => { o.gamma = v; commit(); }, v => v.toFixed(2)));
+
+  box.append(el('h3', { text: 'Edge blend' }));
+  box.append(el('p', { class: 'hint', text: 'Where two projectors overlap, feather the overlapping edge on both. Width in output pixels.' }));
+  for (const [k, label] of [['left', 'Left'], ['right', 'Right'], ['top', 'Top'], ['bottom', 'Bottom']]) {
+    const e = o.blend[k];
+    box.append(slider(`${label} width`, e.w, 0, Math.round(Math.max(o.width, o.height) / 2), 1, v => { e.w = v; commit(); }, v => `${v}px`));
+    box.append(slider(`${label} curve`, e.g, 1, 4, 0.05, v => { e.g = v; commit(); }, v => v.toFixed(2)));
+  }
+
+  box.append(el('h3', { text: 'Surfaces' }));
+  box.append(el('div', { class: 'row' }, btn('Add surface', () => addSurface(o), 'primary')));
+  box.append(el('p', { class: 'hint', text: 'A surface is one patch of video. Flat wall or screen: keep the 2×2 grid and drag the corners. Curved: raise the grid and pull the inner points.' }));
+  box.append(el('div', { class: 'row end' }, btn('Delete projector', () => removeOutput(o), 'danger')));
+  return box;
+}
+
+function surfaceInspector(o, s) {
+  const box = el('div', { class: 'panel' });
+  box.append(el('h2', { text: 'Surface' }), el('div', { class: 'crumb', text: o.name }));
+  box.append(field('Name', textInput(s.name, v => { s.name = v; commit(true); })));
+  box.append(field('Source', selectInput(s.mediaId ?? '',
+    [{ value: '', label: '(none — checkerboard)' }, ...state.media.map(m => ({ value: m.id, label: m.name + (m.missing ? ' (missing)' : '') }))],
+    v => { s.mediaId = v || null; commit(true); })));
+  box.append(checkInput('Visible', s.visible, v => { s.visible = v; commit(true); }));
+  box.append(checkInput('Lock shape', s.locked, v => { s.locked = v; commit(); }));
+  box.append(slider('Opacity', s.opacity, 0, 1, 0.01, v => { s.opacity = v; commit(); }, v => v.toFixed(2)));
+
+  box.append(el('h3', { text: 'Warp grid' }));
+  const cols = numInput(s.cols, C.MIN_GRID, C.MAX_GRID, 1);
+  const rows = numInput(s.rows, C.MIN_GRID, C.MAX_GRID, 1);
+  const apply = () => { C.applyOp(state, { type: 'setGrid', surfaceId: s.id, cols: +cols.value, rows: +rows.value }); commit(true); };
+  cols.addEventListener('change', apply);
+  rows.addEventListener('change', apply);
+  box.append(el('div', { class: 'row' }, field('Columns', cols), field('Rows', rows)));
+  box.append(el('p', { class: 'hint', text: '2×2 is a corner pin (perspective-correct, for flat surfaces). More points let the image bend around columns, domes and curved walls. Changing the grid keeps the current shape.' }));
+  box.append(el('div', { class: 'row' },
+    btn('Straighten', () => { C.applyOp(state, { type: 'flatten', surfaceId: s.id }); commit(); }),
+    btn('Reset shape', () => { C.applyOp(state, { type: 'resetShape', surfaceId: s.id }); commit(); })));
+
+  box.append(el('h3', { text: 'Source crop' }));
+  box.append(el('p', { class: 'hint', text: 'Which part of the source this surface shows (0–1). Use it to spread one wide video across several projectors.' }));
+  for (const [k, label] of [['x', 'Left'], ['y', 'Top'], ['w', 'Width'], ['h', 'Height']]) {
+    box.append(slider(label, s.uv[k], 0, 1, 0.001, v => { s.uv[k] = v; commit(); }, v => v.toFixed(3)));
+  }
+  const tn = numInput(2, 1, 8, 1), ti = numInput(1, 1, 8, 1);
+  box.append(el('div', { class: 'row' }, field('Split into', tn), field('Piece #', ti),
+    btn('Apply', () => { const n = C.clamp(+tn.value || 1, 1, 8), i = C.clamp(+ti.value || 1, 1, n); s.uv.x = (i - 1) / n; s.uv.w = 1 / n; s.uv.y = 0; s.uv.h = 1; commit(true); })));
+
+  box.append(el('h3', { text: 'Soft edges' }));
+  for (const [k, label] of [['l', 'Left'], ['r', 'Right'], ['t', 'Top'], ['b', 'Bottom']]) {
+    box.append(slider(label, s.feather[k], 0, 0.5, 0.005, v => { s.feather[k] = v; commit(); }, v => v.toFixed(3)));
+  }
+
+  box.append(el('h3', { text: 'Stacking' }));
+  const i = o.surfaces.indexOf(s);
+  box.append(el('div', { class: 'row' },
+    btn('Send back', () => { if (i > 0) { o.surfaces.splice(i, 1); o.surfaces.splice(i - 1, 0, s); commit(true); } }),
+    btn('Bring forward', () => { if (i < o.surfaces.length - 1) { o.surfaces.splice(i, 1); o.surfaces.splice(i + 1, 0, s); commit(true); } }),
+    btn('Duplicate', () => {
+      const copy = JSON.parse(JSON.stringify(s));
+      copy.id = C.uid(); copy.name = s.name + ' copy';
+      for (const row of copy.pts) for (const p of row) { p.x += 0.03; p.y += 0.03; }
+      o.surfaces.splice(i + 1, 0, copy);
+      state.selection = { outputId: o.id, surfaceId: copy.id, point: null };
+      commit(true);
+    })));
+  box.append(el('div', { class: 'row end' }, btn('Delete surface', () => {
+    o.surfaces = o.surfaces.filter(x => x !== s);
+    state.selection = { outputId: o.id, surfaceId: null, point: null };
+    commit(true);
+  }, 'danger')));
+  return box;
+}
+
+function settingsPanel(collapsed) {
+  const d = el('details', { class: 'panel settings' });
+  if (!collapsed) d.open = true;
+  d.append(el('summary', { text: 'Show settings' }));
+  d.append(slider('Mesh density', state.meshDensity, 8, 128, 8, v => { state.meshDensity = v; commit(); }, v => `${v}`));
+  d.append(el('p', { class: 'hint', text: 'Subdivisions per surface. Higher = smoother curves, more GPU work. 48 is plenty for most walls.' }));
+  d.append(el('p', { class: 'hint', text: 'Everything autosaves in this browser. Use Save as… for a file you can reload later or on another machine.' }));
+  return d;
+}
+
+// ---------------------------------------------------------------- preview
+
+const previewCanvas = $('#preview');
+const overlayCanvas = $('#previewOverlay');
+let renderer = null;
+let media = null;
+try {
+  renderer = new Renderer(previewCanvas);
+  media = new MediaProvider(renderer.gl, { audio: true });
+  media.onMeta = (id, info) => { mediaInfo.set(id, { ...info, error: false }); rebuildLists(); };
+  media.onError = id => { mediaInfo.set(id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); };
+} catch (e) {
+  toast(e.message, 60000);
+}
+
+new Editor(overlayCanvas, {
+  get: () => ({ state, output: currentOutput() }),
+  send: op => { if (C.applyOp(state, op)) commit(op.type === 'select'); },
+});
+
+function fitPreview() {
+  const wrap = $('#previewWrap');
+  const o = currentOutput();
+  const aw = Math.max(50, wrap.clientWidth - 24), ah = Math.max(50, wrap.clientHeight - 24);
+  let w = aw, h = ah;
+  if (o) {
+    const ar = o.width / o.height;
+    if (aw / ah > ar) { h = ah; w = ah * ar; } else { w = aw; h = aw / ar; }
+  }
+  w = Math.max(1, Math.floor(w)); h = Math.max(1, Math.floor(h));
+  const dpr = window.devicePixelRatio || 1;
+  for (const c of [previewCanvas, overlayCanvas]) {
+    if (c.style.width !== w + 'px') c.style.width = w + 'px';
+    if (c.style.height !== h + 'px') c.style.height = h + 'px';
+    const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (c.width !== pw) c.width = pw;
+    if (c.height !== ph) c.height = ph;
+  }
+}
+
+function frame() {
+  if (media) { media.sync(state); media.tick(state.transport); }
+  fitPreview();
+  const o = currentOutput();
+  const ctx = overlayCanvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (o && renderer) {
+    renderer.render(o, state, previewMedia ? media : null);
+    drawOverlay(ctx, o, state, overlayCanvas.width / dpr, overlayCanvas.height / dpr, { density: state.meshDensity, handles: true });
+    $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height}` + (state.selection.surfaceId ? ' · drag points, arrows nudge (shift = 10px), Tab cycles points' : ' · click a surface to edit it');
+  } else {
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    $('#previewInfo').textContent = '';
+  }
+  updateTransportUI();
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------- transport
+
+function longestDuration() {
+  let d = 0;
+  for (const m of state.media) { const i = mediaInfo.get(m.id); if (i && i.duration > d) d = i.duration; }
+  return d;
+}
+function play() {
+  const tr = state.transport;
+  if (tr.playing) { tr.pausedAt = C.transportTime(tr); tr.playing = false; }
+  else { tr.startedAt = Date.now(); tr.playing = true; }
+  commit();
+}
+function stop() {
+  const tr = state.transport;
+  tr.playing = false; tr.pausedAt = 0;
+  commit();
+}
+function seek(t) {
+  const tr = state.transport;
+  tr.pausedAt = Math.max(0, t); tr.startedAt = Date.now();
+  commit();
+}
+
+let scrubbing = false;
+function updateTransportUI() {
+  const tr = state.transport;
+  const dur = longestDuration();
+  const t = C.transportTime(tr);
+  const shown = dur > 0 && tr.loop ? t % dur : Math.min(t, dur || t);
+  $('#timeDisplay').textContent = `${fmtTime(shown)} / ${fmtTime(dur)}`;
+  $('#btnPlay').textContent = tr.playing ? '❚❚' : '▶';
+  const sc = $('#scrub');
+  if (!scrubbing) { sc.max = dur || 1; sc.value = shown; }
+}
+
+// ---------------------------------------------------------------- project file
+
+function exportShow() {
+  const data = JSON.stringify({ ...state, transport: { ...state.transport, playing: false, pausedAt: 0 } }, null, 2);
+  const a = el('a', { href: URL.createObjectURL(new Blob([data], { type: 'application/json' })), download: `${state.name.replace(/[^\w.-]+/g, '_') || 'show'}.pmap.json` });
+  document.body.append(a); a.click(); a.remove();
+}
+function importShow(file) {
+  file.text().then(txt => {
+    const raw = JSON.parse(txt);
+    if (raw.version !== 1 || !Array.isArray(raw.outputs)) throw new Error('bad file');
+    state = normalize(raw);
+    mediaInfo.clear();
+    commit(true);
+    toast(`Opened ${file.name}`);
+  }).catch(() => toast('That is not a show file from this app.'));
+}
+
+// ---------------------------------------------------------------- wiring
+
+$('#showName').addEventListener('change', e => { state.name = e.target.value.trim() || 'Untitled show'; commit(); });
+$('#btnNew').addEventListener('click', () => { if (confirm('Start a new empty show? The current one stays saved only if you exported it.')) { state = C.defaultState(); mediaInfo.clear(); commit(true); } });
+$('#btnImport').addEventListener('click', () => $('#fileImport').click());
+$('#fileImport').addEventListener('change', e => { if (e.target.files[0]) importShow(e.target.files[0]); e.target.value = ''; });
+$('#btnExport').addEventListener('click', exportShow);
+$('#btnOpenAll').addEventListener('click', () => state.outputs.forEach(o => openOutput(o)));
+$('#btnAddMedia').addEventListener('click', () => $('#fileMedia').click());
+$('#fileMedia').addEventListener('change', e => { addMediaFiles(e.target.files); e.target.value = ''; });
+$('#btnScan').addEventListener('click', scanFolder);
+$('#btnAddOutput').addEventListener('click', addOutput);
+$('#chkPreviewMedia').addEventListener('change', e => { previewMedia = e.target.checked; });
+$('#btnPlay').addEventListener('click', play);
+$('#btnStop').addEventListener('click', stop);
+$('#chkLoop').addEventListener('change', e => { state.transport.loop = e.target.checked; commit(); });
+$('#selRate').addEventListener('change', e => { seek(C.transportTime(state.transport)); state.transport.rate = parseFloat(e.target.value); commit(); });
+$('#vol').addEventListener('input', e => { state.transport.volume = parseFloat(e.target.value); commit(); });
+const scrub = $('#scrub');
+scrub.addEventListener('pointerdown', () => { scrubbing = true; });
+scrub.addEventListener('input', () => seek(parseFloat(scrub.value)));
+scrub.addEventListener('change', () => { scrubbing = false; seek(parseFloat(scrub.value)); });
+document.addEventListener('pointerup', () => { scrubbing = false; });
+
+document.addEventListener('keydown', e => {
+  const tag = e.target.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (e.code === 'Space') { play(); e.preventDefault(); }
+});
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files?.length) addMediaFiles(e.dataTransfer.files); });
+window.addEventListener('beforeunload', () => { for (const w of outputWindows.values()) if (w && !w.closed) w.close(); });
+setInterval(updateStatusTexts, 1000);
+
+$('#chkLoop').checked = state.transport.loop;
+$('#selRate').value = String(state.transport.rate);
+$('#vol').value = String(state.transport.volume);
+if (location.protocol === 'file:') toast('Open this through serve.ps1 (http://127.0.0.1:8765/) — file:// cannot sync the projector windows.', 60000);
+rebuildLists();
+rebuildInspector();
+broadcast();
+requestAnimationFrame(frame);
