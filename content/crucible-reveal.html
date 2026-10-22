@@ -121,7 +121,7 @@ function drawWall(t) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = alpha * (0.5 + 0.6 * full);
-      ctx.drawImage(logoGlow, LOGO_CX - w * 0.55, LOGO_CY - h * 0.55, w * 1.1, h * 1.1);
+      ctx.drawImage(logoGlow, LOGO_CX - w / 2, LOGO_CY - h / 2, w, h);
       ctx.globalAlpha = alpha;
       ctx.drawImage(logo, LOGO_CX - w / 2, LOGO_CY - h / 2, w, h);
       ctx.restore();
