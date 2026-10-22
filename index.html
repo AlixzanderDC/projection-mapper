@@ -73,6 +73,19 @@
   <label class="inline">Audio <input id="vol" type="range" min="0" max="1" step="0.01" value="1" title="Audio plays from this window"></label>
 </footer>
 <input id="fileImport" type="file" accept=".json,application/json" hidden>
+<script>
+// Early diagnostics, kept outside the module so they run even when modules cannot load.
+(function () {
+  function banner(msg) { var t = document.getElementById('toast'); if (t) { t.textContent = msg; t.classList.add('show'); } }
+  if (location.protocol === 'file:') {
+    document.addEventListener('DOMContentLoaded', function () {
+      banner('Opened as a file — browsers block the app this way. Run serve.ps1 and use http://127.0.0.1:8765/');
+    });
+  }
+  window.addEventListener('error', function (e) { banner('Error: ' + (e.message || e)); });
+  window.addEventListener('unhandledrejection', function (e) { banner('Error: ' + ((e.reason && e.reason.message) || e.reason)); });
+})();
+</script>
 <script type="module" src="js/control.js"></script>
 </body>
 </html>
