@@ -7,4 +7,6 @@ Best formats for the browser:
   - PNG / JPG / WebP for stills
   - MP3 / WAV / M4A for soundtracks (they play from the control window, in sync with the transport)
 
+Encoding tip: a keyframe every second (ffmpeg: -g 30 for 30 fps) makes seeking and looping instant.
+
 Files here are ignored by git.

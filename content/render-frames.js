@@ -27,6 +27,6 @@ const fs = require('fs'); const { execSync } = require('child_process');
   await browser.close();
   if (previewOnly) { console.log('preview frames in', dir); return; }
   console.log('encoding…');
-  execSync(`ffmpeg -y -loglevel error -framerate ${FPS} -i ${dir}/f%04d.png ${audioArgs} -c:v libx264 -preset medium -crf 17 -pix_fmt yuv420p -movflags +faststart "${outMp4}"`, { stdio: 'inherit' });
+  execSync(`ffmpeg -y -loglevel error -framerate ${FPS} -i ${dir}/f%04d.png ${audioArgs} -c:v libx264 -preset medium -crf 17 -g 30 -keyint_min 30 -sc_threshold 0 -pix_fmt yuv420p -movflags +faststart "${outMp4}"`, { stdio: 'inherit' });
   console.log('done', outMp4, fs.statSync(outMp4).size);
 })();

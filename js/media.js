@@ -7,7 +7,6 @@ export class MediaProvider {
     this.audio = audio;
     this.items = new Map();
     this.posters = new Map();   // mediaId -> {src, tex, uploaded}: a still frame used when the file itself is not loaded
-    this.lastCorrect = 0;
     this.onMeta = null;    // (id, {duration, width, height})
     this.onError = null;   // (id)
   }
@@ -108,47 +107,42 @@ export class MediaProvider {
     return it.uploaded ? it : null;
   }
 
-  // Drive every video from the shared transport clock.
-  // Diagnostics for the UI: how many videos are decoding here, and dropped frames (Chrome/Edge).
-  stats() {
-    let videos = 0, dropped = 0, errors = 0;
-    for (const it of this.items.values()) {
-      if (it.kind === 'image') continue;
-      videos++;
-      if (it.playError) errors++;
-      const q = it.el.getVideoPlaybackQuality?.();
-      if (q) dropped += q.droppedVideoFrames;
-    }
-    return { videos, dropped, errors };
-  }
-
+  // Drive every video/audio element from the shared transport clock.
+  // Seeking is expensive (Chrome re-decodes from the last keyframe, which can be seconds of
+  // video), so small drift is corrected by nudging playbackRate; we only seek for big jumps,
+  // and never more than once every 2.5 s or while the element has no decoded frame.
   tick(transport, now = Date.now()) {
     const t = transportTime(transport, now);
-    const correct = now - this.lastCorrect > 400;
     for (const it of this.items.values()) {
       if (it.kind === 'image') continue;
       const v = it.el, d = v.duration;
       if (!(d > 0) || !isFinite(d)) continue;
       const target = transport.loop ? t % d : Math.min(t, d);
       if (v.loop !== !!transport.loop) v.loop = !!transport.loop;
-      if (v.playbackRate !== transport.rate) v.playbackRate = transport.rate;
       const muted = !this.audio || transport.volume <= 0;
       if (v.muted !== muted) v.muted = muted;
       if (this.audio) v.volume = clamp(transport.volume, 0, 1);
+      let drift = v.currentTime - target;                 // + = element is ahead of the clock
+      if (transport.loop) { if (drift > d / 2) drift -= d; else if (drift < -d / 2) drift += d; }
+      const ad = Math.abs(drift);
+      const canSeek = now - (it.lastSeekAt || 0) > 2500;
       if (transport.playing && target < d) {
         if (v.paused) {
-          // Never hammer play()/seek every frame: if play() is refused, retry once a second.
-          if (now - (it.playTriedAt || 0) > 1000) {
+          if (now - (it.playTriedAt || 0) > 1000) {         // if play() is refused, retry once a second
             it.playTriedAt = now;
-            if (Math.abs(v.currentTime - target) > 0.1) v.currentTime = target;
+            if (ad > 0.25) { v.currentTime = target; it.lastSeekAt = now; }
+            v.playbackRate = transport.rate;
             v.play().catch(e => { it.playError = e.name; });
           }
-        } else if (correct && Math.abs(v.currentTime - target) > 0.1) v.currentTime = target;
+        } else if (v.readyState >= 3) {                     // only judge drift once frames are flowing
+          if (ad > 1.5 && canSeek) { v.currentTime = target; it.lastSeekAt = now; v.playbackRate = transport.rate; }
+          else if (ad > 0.06) { const k = 1 + Math.min(ad, 1) * 0.12; v.playbackRate = transport.rate * (drift > 0 ? 1 / k : k); }
+          else if (v.playbackRate !== transport.rate) v.playbackRate = transport.rate;
+        }
       } else {
         if (!v.paused) v.pause();
-        if (correct && Math.abs(v.currentTime - target) > 0.04) v.currentTime = target;
+        if (ad > 0.05 && now - (it.lastSeekAt || 0) > 250) { v.currentTime = target; it.lastSeekAt = now; }
       }
     }
-    if (correct) this.lastCorrect = now;
   }
 }
