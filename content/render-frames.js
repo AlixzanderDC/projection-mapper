@@ -17,9 +17,16 @@ const fs = require('fs'); const { execSync } = require('child_process');
     fs.writeFileSync(`${dir}/f${String(n++).padStart(4, '0')}.png`, Buffer.from(data, 'base64'));
     if (n % 100 === 0) console.log('frames', n);
   }
+  let audioArgs = '';
+  if (!previewOnly && await page.evaluate(() => typeof window.renderAudio === 'function')) {
+    console.log('rendering audio…');
+    const wav = await page.evaluate(() => window.renderAudio());
+    fs.writeFileSync(`${dir}/audio.wav`, Buffer.from(wav, 'base64'));
+    audioArgs = `-i ${dir}/audio.wav -c:a aac -b:a 192k -shortest`;
+  }
   await browser.close();
   if (previewOnly) { console.log('preview frames in', dir); return; }
   console.log('encoding…');
-  execSync(`ffmpeg -y -loglevel error -framerate ${FPS} -i ${dir}/f%04d.png -c:v libx264 -preset medium -crf 17 -pix_fmt yuv420p -movflags +faststart "${outMp4}"`, { stdio: 'inherit' });
+  execSync(`ffmpeg -y -loglevel error -framerate ${FPS} -i ${dir}/f%04d.png ${audioArgs} -c:v libx264 -preset medium -crf 17 -pix_fmt yuv420p -movflags +faststart "${outMp4}"`, { stdio: 'inherit' });
   console.log('done', outMp4, fs.statSync(outMp4).size);
 })();

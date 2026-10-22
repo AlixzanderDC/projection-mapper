@@ -26,7 +26,7 @@
 // Everything is drawn from the time t, so any frame can be rendered on its own:
 // open with ?frame=1 and call renderAt(t) (used by the headless render script).
 const W = 1920, H = 1080, DURATION = 28, FPS = 30;
-const T0 = 5.5;              // vines start once the fireflies have gathered
+const T0 = 4.6;              // vines start right after the lightning
 const NOBG = new URLSearchParams(location.search).has('nobg');
 const SHAPE = '714.9,65.5;719.3,65.3;723.7,65.0;728.1,64.8;732.6,64.7;737.0,64.5;741.4,64.2;745.9,64.0;750.3,63.8;754.7,63.6;759.2,63.4;763.6,63.2;768.0,63.0;780.9,96.0;793.7,129.0;806.6,161.9;819.4,194.9;832.2,227.8;845.1,260.8;857.9,293.8;870.8,326.7;883.6,359.7;896.5,392.7;909.3,425.6;922.2,458.6;936.6,426.2;951.0,393.7;965.4,361.3;979.8,328.9;994.3,296.4;1008.7,264.0;1023.1,231.6;1037.5,199.1;1051.9,166.7;1066.4,134.3;1080.8,101.8;1095.2,69.4;1099.8,69.5;1104.5,69.7;1109.1,69.8;1113.8,70.0;1118.4,70.1;1123.1,70.2;1127.7,70.4;1132.4,70.5;1137.0,70.6;1141.7,70.8;1146.3,70.9;1151.0,71.0;1142.6,89.6;1134.3,108.2;1125.9,126.9;1117.6,145.6;1109.2,164.4;1100.9,183.2;1092.6,202.1;1084.2,221.1;1075.9,240.1;1067.5,259.1;1059.2,278.3;1050.8,297.4;1042.5,316.7;1034.1,336.0;1025.8,355.3;1017.4,374.7;1009.1,394.2;1000.7,413.7;992.4,433.3;984.0,452.9;975.7,472.6;967.3,492.4;959.0,512.2;950.6,532.1;958.4,553.1;966.2,574.1;974.0,595.1;981.9,616.3;989.6,637.5;997.5,658.7;1005.3,680.0;1013.1,701.4;1020.9,722.8;1028.7,744.3;1036.5,765.9;1044.3,787.5;1052.1,809.2;1059.9,831.0;1067.7,852.8;1075.5,874.7;1083.3,896.6;1091.1,918.6;1098.8,940.7;1106.7,962.9;1114.4,985.1;1122.2,1007.4;1130.0,1029.7;1137.8,1052.1;1133.0,1051.9;1128.1,1051.7;1123.2,1051.4;1118.4,1051.2;1113.5,1050.9;1108.7,1050.7;1103.8,1050.5;1099.0,1050.2;1094.2,1050.0;1089.3,1049.7;1084.5,1049.5;1079.6,1049.2;1065.8,1013.2;1052.1,977.3;1038.3,941.3;1024.6,905.3;1010.8,869.3;997.0,833.3;983.3,797.3;969.5,761.3;955.8,725.3;942.0,689.3;928.3,653.3;914.5,617.3;899.1,652.7;883.7,688.0;868.2,723.4;852.8,758.7;837.4,794.1;822.0,829.4;806.6,864.7;791.1,900.1;775.7,935.4;760.3,970.8;744.9,1006.1;729.5,1041.5;724.5,1041.7;719.5,1042.0;714.5,1042.2;709.5,1042.5;704.5,1042.8;699.5,1043.0;694.5,1043.3;689.5,1043.5;684.5,1043.8;679.5,1044.0;674.6,1044.3;669.6,1044.6;678.9,1022.6;688.3,1000.8;697.6,979.0;706.9,957.3;716.3,935.7;725.6,914.1;734.9,892.6;744.2,871.1;753.6,849.8;762.9,828.4;772.2,807.2;781.5,786.0;790.8,764.9;800.1,743.8;809.4,722.8;818.7,701.9;828.0,681.0;837.3,660.2;846.6,639.4;855.9,618.7;865.2,598.1;874.5,577.5;883.7,557.0;893.0,536.6;885.6,516.3;878.2,496.1;870.8,475.9;863.4,455.8;856.0,435.7;848.6,415.7;841.2,395.8;833.8,375.9;826.4,356.0;819.0,336.3;811.5,316.6;804.1,296.9;796.7,277.3;789.3,257.8;781.9,238.3;774.4,218.9;767.0,199.5;759.5,180.2;752.1,160.9;744.7,141.7;737.2,122.6;729.8,103.5;722.3,84.4'.split(';').map(p => p.split(',').map(Number));
 const WALL = '94.5,1.5;126.9,1.5;159.4,1.5;191.9,1.5;224.4,1.5;256.9,1.5;289.5,1.5;322.1,1.5;354.6,1.5;387.2,1.5;419.9,1.5;452.5,1.5;485.2,1.5;517.9,1.5;550.6,1.5;583.3,1.5;616.1,1.5;648.8,1.5;681.6,1.5;714.4,1.5;747.3,1.5;780.1,1.5;813.0,1.5;845.9,1.5;878.8,1.5;911.7,1.5;944.7,1.5;977.6,1.5;1010.6,1.5;1043.6,1.5;1076.7,1.5;1109.7,1.5;1142.8,1.5;1175.9,1.5;1209.0,1.5;1242.1,1.5;1275.3,1.5;1308.4,1.5;1341.6,1.5;1374.8,1.5;1408.1,1.5;1441.3,1.5;1474.6,1.5;1507.9,1.5;1541.2,1.5;1574.5,1.5;1607.9,1.5;1641.3,1.5;1674.7,1.5;1674.3,23.7;1674.0,45.9;1673.7,68.1;1673.4,90.2;1673.1,112.4;1672.8,134.6;1672.4,156.7;1672.1,178.8;1671.8,201.0;1671.5,223.1;1671.2,245.2;1670.8,267.3;1670.5,289.4;1670.2,311.5;1669.9,333.6;1669.6,355.7;1669.2,377.8;1668.9,399.9;1668.6,421.9;1668.3,444.0;1668.0,466.0;1667.7,488.1;1667.3,510.1;1667.0,532.1;1666.7,554.1;1666.4,576.2;1666.1,598.2;1665.8,620.2;1665.4,642.1;1665.1,664.1;1664.8,686.1;1664.5,708.1;1664.2,730.0;1663.8,752.0;1663.5,774.0;1663.2,795.9;1662.9,817.8;1662.6,839.8;1662.3,861.7;1662.0,883.6;1661.6,905.5;1661.3,927.4;1661.0,949.3;1660.7,971.2;1660.4,993.0;1660.1,1014.9;1659.7,1036.8;1659.4,1058.6;1626.3,1058.3;1593.2,1058.0;1560.1,1057.7;1527.0,1057.4;1494.0,1057.0;1460.9,1056.7;1427.9,1056.4;1394.9,1056.1;1361.9,1055.8;1329.0,1055.4;1296.0,1055.1;1263.1,1054.8;1230.2,1054.5;1197.4,1054.2;1164.5,1053.8;1131.7,1053.5;1098.9,1053.2;1066.1,1052.9;1033.3,1052.5;1000.5,1052.2;967.8,1051.9;935.1,1051.6;902.4,1051.3;869.7,1051.0;837.1,1050.6;804.4,1050.3;771.8,1050.0;739.2,1049.7;706.6,1049.4;674.1,1049.1;641.6,1048.7;609.0,1048.4;576.5,1048.1;544.1,1047.8;511.6,1047.5;479.2,1047.2;446.8,1046.8;414.4,1046.5;382.0,1046.2;349.6,1045.9;317.3,1045.6;284.9,1045.3;252.7,1045.0;220.4,1044.6;188.1,1044.3;155.9,1044.0;123.6,1043.7;91.4,1043.4;91.5,1021.9;91.5,1000.3;91.6,978.7;91.7,957.2;91.7,935.6;91.8,914.0;91.9,892.4;91.9,870.8;92.0,849.2;92.1,827.6;92.1,806.0;92.2,784.4;92.2,762.8;92.3,741.1;92.4,719.5;92.4,697.9;92.5,676.2;92.6,654.5;92.6,632.9;92.7,611.2;92.8,589.5;92.8,567.8;92.9,546.1;93.0,524.4;93.0,502.7;93.1,481.0;93.1,459.3;93.2,437.6;93.3,415.8;93.3,394.1;93.4,372.3;93.5,350.6;93.5,328.8;93.6,307.0;93.7,285.3;93.7,263.5;93.8,241.7;93.8,219.9;93.9,198.1;94.0,176.3;94.0,154.4;94.1,132.6;94.2,110.8;94.2,89.0;94.3,67.1;94.3,45.2;94.4,23.4'.split(';').map(p => p.split(',').map(Number));   // the background surface's outline
@@ -199,85 +199,193 @@ function drawRose(x, y, R, b, spin, rot) {
   ctx.restore();
 }
 
-// ---- background: night garden on the wall
+// ---- the wall: a mystical evening from sunset to night (matches the animation board)
+const HORIZON = 585;
+const TL = 4.4;                      // lightning strikes here; the vines start right after
+const night = t => ease((t - 1) / 21);   // 0 = sunset, 1 = night
+const mixc = (a, b, k) => `rgb(${Math.round(lerp(a[0], b[0], k))},${Math.round(lerp(a[1], b[1], k))},${Math.round(lerp(a[2], b[2], k))})`;
+
+const STARS = [];
+{ const r = mulberry32(31); for (let i = 0; i < 220; i++) STARS.push({ x: 60 + r() * 1600, y: 10 + r() * 480, s: 0.6 + r() * 1.6, ph: r() * 6.28, f: 0.5 + r() * 2 }); }
+const HILLS = [];
+{
+  const r = mulberry32(12);
+  for (let layer = 0; layer < 3; layer++) {
+    const pts = [];
+    for (let x = 0; x <= 1920; x += 40) pts.push([x, HORIZON - 20 - layer * 28 - (Math.sin(x / 190 + layer * 2) * 0.5 + 0.5) * (40 + layer * 25) - r() * 10]);
+    HILLS.push(pts);
+  }
+}
+const TREES = [];
+{
+  const r = mulberry32(5);
+  const add = (x, base, h, w, n) => { const blobs = []; for (let i = 0; i < n; i++) blobs.push([(r() - 0.5) * w, -h * (0.35 + r() * 0.6), w * (0.22 + r() * 0.2)]); TREES.push({ x, base, h, w, blobs, trunk: 10 + r() * 14 }); };
+  add(140, 700, 520, 300, 9); add(330, 640, 420, 230, 8); add(60, 760, 380, 220, 7);
+  add(1560, 690, 540, 320, 9); add(1400, 630, 400, 220, 8); add(1660, 780, 360, 220, 7);
+  add(520, 610, 220, 140, 6); add(1240, 600, 230, 150, 6);
+}
+const BUSHES = [];
+{
+  const r = mulberry32(88);
+  for (let i = 0; i < 70; i++) BUSHES.push({ x: 80 + r() * 1540, y: 930 + r() * 150, rx: 40 + r() * 80, ry: 22 + r() * 40, g: r() });
+}
+const LANTERNS = [[150, 455], [1545, 470], [1670, 520]];
+
+function drawSky(t) {
+  const n = night(t);
+  const g = ctx.createLinearGradient(0, 0, 0, HORIZON + 40);
+  g.addColorStop(0, mixc([28, 14, 56], [3, 6, 18], n));
+  g.addColorStop(0.5, mixc([96, 36, 84], [8, 14, 40], n));
+  g.addColorStop(0.85, mixc([214, 84, 40], [18, 22, 58], n));
+  g.addColorStop(1, mixc([255, 150, 60], [26, 30, 70], n));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, HORIZON + 40);
+  // setting sun behind the cross
+  const sunY = HORIZON - 10 + n * 90;
+  const sg = ctx.createRadialGradient(CENTER[0], sunY, 0, CENTER[0], sunY, 520);
+  sg.addColorStop(0, `rgba(255,190,90,${0.75 * (1 - n)})`);
+  sg.addColorStop(0.35, `rgba(255,110,40,${0.35 * (1 - n)})`);
+  sg.addColorStop(1, 'rgba(255,90,30,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, 0, W, HORIZON + 40);
+  // stars
+  for (const s of STARS) {
+    const a = n * (0.5 + 0.5 * Math.sin(t * s.f + s.ph)) * 0.9;
+    if (a <= 0.02) continue;
+    ctx.fillStyle = `rgba(255,255,240,${a})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, 6.2832); ctx.fill();
+  }
+}
+
+function drawHills(t) {
+  const n = night(t);
+  HILLS.forEach((pts, i) => {
+    ctx.fillStyle = mixc([70 - i * 15, 30 - i * 6, 60 - i * 12], [10 - i * 2, 12 - i * 2, 28 - i * 5], n);
+    ctx.beginPath();
+    ctx.moveTo(0, HORIZON + 60);
+    pts.forEach(p => ctx.lineTo(p[0], p[1]));
+    ctx.lineTo(W, HORIZON + 60);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+function drawGround(t) {
+  const n = night(t);
+  const g = ctx.createLinearGradient(0, HORIZON - 30, 0, H);
+  g.addColorStop(0, mixc([40, 44, 22], [8, 16, 12], n));
+  g.addColorStop(1, mixc([14, 24, 10], [3, 8, 6], n));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, HORIZON - 30, W, H - HORIZON + 30);
+  // path to the cross
+  ctx.fillStyle = mixc([84, 66, 40], [30, 26, 22], n);
+  ctx.beginPath();
+  ctx.moveTo(CENTER[0] - 60, HORIZON + 10); ctx.lineTo(CENTER[0] + 60, HORIZON + 10);
+  ctx.lineTo(CENTER[0] + 330, H); ctx.lineTo(CENTER[0] - 330, H);
+  ctx.closePath(); ctx.fill();
+  // bushes and undergrowth
+  for (const b of BUSHES) {
+    ctx.fillStyle = mixc([24 + b.g * 20, 60 + b.g * 30, 22], [5 + b.g * 6, 16 + b.g * 10, 8], n);
+    ctx.beginPath(); ctx.ellipse(b.x, b.y, b.rx, b.ry, 0, 0, 6.2832); ctx.fill();
+  }
+}
+
+function drawTrees(t) {
+  const n = night(t);
+  const col = mixc([18, 12, 22], [3, 4, 8], n);
+  for (const tr of TREES) {
+    ctx.fillStyle = col;
+    ctx.fillRect(tr.x - tr.trunk / 2, tr.base - tr.h * 0.55, tr.trunk, tr.h * 0.6);
+    for (const [dx, dy, r] of tr.blobs) { ctx.beginPath(); ctx.arc(tr.x + dx, tr.base + dy, r, 0, 6.2832); ctx.fill(); }
+  }
+}
+
+function drawRuins(t) {
+  const n = night(t);
+  const stone = mixc([70, 66, 74], [26, 26, 34], n), dark = mixc([40, 36, 44], [12, 12, 18], n);
+  // left: broken arch
+  ctx.fillStyle = stone;
+  ctx.fillRect(60, 300, 60, 420);
+  ctx.fillRect(200, 360, 50, 360);
+  ctx.beginPath(); ctx.arc(155, 330, 95, Math.PI, 2 * Math.PI); ctx.lineTo(250, 330); ctx.arc(155, 330, 35, 0, Math.PI, true); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = dark; ctx.lineWidth = 2;
+  for (let y = 320; y < 720; y += 42) { ctx.beginPath(); ctx.moveTo(60, y); ctx.lineTo(120, y); ctx.moveTo(200, y + 20); ctx.lineTo(250, y + 20); ctx.stroke(); }
+  // right: column stump and wall
+  ctx.fillStyle = stone;
+  ctx.fillRect(1480, 380, 70, 340);
+  ctx.fillRect(1600, 470, 60, 250);
+  for (let y = 400; y < 720; y += 44) { ctx.beginPath(); ctx.moveTo(1480, y); ctx.lineTo(1550, y); ctx.moveTo(1600, y + 18); ctx.lineTo(1660, y + 18); ctx.stroke(); }
+}
+
+function drawLanterns(t) {
+  LANTERNS.forEach(([x, y], i) => {
+    const flick = 0.85 + 0.15 * Math.sin(t * 9 + i * 2) * Math.sin(t * 13.7 + i);
+    const n = night(t), k = (0.35 + 0.65 * n) * flick;     // lanterns matter more as it gets dark
+    // post + box
+    ctx.fillStyle = '#0a0806';
+    ctx.fillRect(x - 4, y, 8, 300);
+    ctx.fillRect(x - 16, y - 34, 32, 40);
+    // glass
+    ctx.fillStyle = `rgba(255,190,80,${0.9 * flick})`;
+    ctx.fillRect(x - 11, y - 29, 22, 30);
+    // glow on the scene
+    const g = ctx.createRadialGradient(x, y - 14, 0, x, y - 14, 330);
+    g.addColorStop(0, `rgba(255,170,60,${0.55 * k})`);
+    g.addColorStop(0.3, `rgba(255,130,40,${0.18 * k})`);
+    g.addColorStop(1, 'rgba(255,120,40,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - 330, y - 344, 660, 660);
+  });
+}
+
+const BOLT = [];
+{
+  const r = mulberry32(404);
+  let x = CENTER[0] + 30, y = 40;
+  BOLT.push([x, y]);
+  while (y < HORIZON - 20) { y += 18 + r() * 26; x += (r() - 0.5) * 60; BOLT.push([x, y]); }
+}
+function lightningFlash(t) {
+  let f = 0;
+  for (const k of [TL, TL + 0.12, TL + 0.45]) if (t > k) f = Math.max(f, Math.exp(-(t - k) * 11));
+  return f;
+}
+function drawLightning(t) {
+  const f = lightningFlash(t);
+  if (f <= 0.01) return;
+  ctx.fillStyle = `rgba(150,110,255,${0.35 * f})`;
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.shadowColor = '#d0a8ff'; ctx.shadowBlur = 40;
+  ctx.strokeStyle = `rgba(230,210,255,${f})`;
+  ctx.lineWidth = 4;
+  ctx.beginPath(); BOLT.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = `rgba(200,170,255,${0.8 * f})`;
+  ctx.beginPath(); ctx.moveTo(BOLT[5][0], BOLT[5][1]); ctx.lineTo(BOLT[5][0] - 90, BOLT[5][1] + 120); ctx.lineTo(BOLT[5][0] - 120, BOLT[5][1] + 200);
+  ctx.moveTo(BOLT[9][0], BOLT[9][1]); ctx.lineTo(BOLT[9][0] + 70, BOLT[9][1] + 90); ctx.stroke();
+  ctx.restore();
+}
+
+function drawVignette() {
+  const g = ctx.createRadialGradient(CENTER[0], 540, 300, CENTER[0], 540, 1150);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.75)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
 const FLIES = [];
 {
   const r = mulberry32(2024);
-  for (let i = 0; i < 70; i++) {
-    const gather = i < 50;
-    FLIES.push({
-      x: 150 + r() * 1450, y: 120 + r() * 850, gather,
-      target: ARMS[i % 2][0],                           // a foot of the cross
-      f1: 0.2 + r() * 0.4, f2: 0.3 + r() * 0.5, p1: r() * 6.28, p2: r() * 6.28, amp: 40 + r() * 90,
-      flick: 2 + r() * 4, fp: r() * 6.28, size: 2 + r() * 2.5, leave: 0.3 + r() * 0.7,
-    });
-  }
+  for (let i = 0; i < 26; i++) FLIES.push({ x: 150 + r() * 1450, y: 300 + r() * 650, f1: 0.2 + r() * 0.4, f2: 0.3 + r() * 0.5, p1: r() * 6.28, p2: r() * 6.28, amp: 40 + r() * 90, flick: 2 + r() * 4, fp: r() * 6.28, size: 2 + r() * 2 });
 }
-const GRASS = [];
-{
-  const r = mulberry32(55);
-  for (let x = 80; x < 1680; x += 9) GRASS.push({ x, base: WALL_BOTTOM(x) + 4, h: 40 + r() * 70, lean: (r() - 0.5) * 0.5, ph: r() * 6.28, w: 2 + r() * 2 });
-}
-const PETALS = [];
-{
-  const r = mulberry32(777);
-  for (let i = 0; i < 90; i++) {
-    const ro = ROSES[Math.floor(r() * ROSES.length)];
-    PETALS.push({ ro, release: ro.bloomAt + 2.5 + r() * 9, vx: (r() - 0.5) * 30, fall: 55 + r() * 40, sw: 20 + r() * 40, sf: 0.6 + r() * 0.8, rot: r() * 6.28, rs: (r() - 0.5) * 2, size: 7 + r() * 6, life: 7 + r() * 4 });
-  }
-}
-
-function drawBackground(t) {
-  // night sky to ground
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#02040a');
-  g.addColorStop(0.65, '#04101a');
-  g.addColorStop(1, '#07200f');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-  // moonlight from the top-left, very soft
-  const m = ctx.createRadialGradient(300, -200, 0, 300, -200, 1400);
-  m.addColorStop(0, 'rgba(120,150,200,0.10)');
-  m.addColorStop(1, 'rgba(120,150,200,0)');
-  ctx.fillStyle = m;
-  ctx.fillRect(0, 0, W, H);
-  // drifting mist
-  for (let i = 0; i < 4; i++) {
-    const cx = ((t * (18 + i * 7) + i * 530) % (W + 900)) - 450;
-    const cy = H * 0.72 + Math.sin(t * 0.3 + i) * 40 + i * 35;
-    const mg = ctx.createRadialGradient(cx, cy, 0, cx, cy, 420);
-    mg.addColorStop(0, 'rgba(90,120,110,0.09)');
-    mg.addColorStop(1, 'rgba(90,120,110,0)');
-    ctx.fillStyle = mg;
-    ctx.fillRect(0, 0, W, H);
-  }
-  // grass along the bottom
-  ctx.strokeStyle = '#0d3b16';
-  ctx.lineCap = 'round';
-  for (const b of GRASS) {
-    const sway = Math.sin(t * 1.1 + b.ph) * 10;
-    ctx.lineWidth = b.w;
-    ctx.beginPath();
-    ctx.moveTo(b.x, b.base);
-    ctx.quadraticCurveTo(b.x + b.lean * 30, b.base - b.h * 0.6, b.x + b.lean * 60 + sway, b.base - b.h);
-    ctx.stroke();
-  }
-}
-
 function drawFireflies(t) {
+  const n = night(t);
   for (const f of FLIES) {
-    let x = f.x + Math.sin(t * f.f1 + f.p1) * f.amp, y = f.y + Math.sin(t * f.f2 + f.p2) * f.amp * 0.6;
-    let alpha = 0.55 + 0.45 * Math.sin(t * f.flick + f.fp);
-    if (f.gather) {
-      const k = ease((t - 0.8) / 4.6);                 // 0.8 s .. 5.4 s: converge on the feet
-      const tx = f.target[0] + Math.sin(t * 3 + f.p1) * 12, ty = f.target[1] - 10 + Math.cos(t * 2.5 + f.p2) * 10;
-      x = lerp(x, tx, k); y = lerp(y, ty, k);
-      alpha *= 1 - ease((t - T0 - 0.2 - f.leave) / 0.8); // absorbed into the vine
-      if (alpha <= 0) continue;
-      alpha *= 0.5 + 0.5 * k;                           // brighten as they gather
-    } else {
-      alpha *= 0.55;
-    }
+    const x = f.x + Math.sin(t * f.f1 + f.p1) * f.amp, y = f.y + Math.sin(t * f.f2 + f.p2) * f.amp * 0.6;
+    const alpha = (0.55 + 0.45 * Math.sin(t * f.flick + f.fp)) * 0.6 * n;
+    if (alpha <= 0.02) continue;
     const rg = ctx.createRadialGradient(x, y, 0, x, y, f.size * 6);
     rg.addColorStop(0, `rgba(220,255,140,${0.9 * alpha})`);
     rg.addColorStop(0.25, `rgba(180,240,90,${0.35 * alpha})`);
@@ -287,27 +395,34 @@ function drawFireflies(t) {
   }
 }
 
+const PETALS = [];
+{
+  const r = mulberry32(777);
+  for (let i = 0; i < 90; i++) {
+    const ro = ROSES[Math.floor(r() * ROSES.length)];
+    PETALS.push({ ro, release: ro.bloomAt + 2.5 + r() * 9, vx: (r() - 0.5) * 30, fall: 55 + r() * 40, sw: 20 + r() * 40, sf: 0.6 + r() * 0.8, rot: r() * 6.28, rs: (r() - 0.5) * 2, size: 7 + r() * 6, life: 7 + r() * 4 });
+  }
+}
+
 function drawPulse(t) {
-  // when the vines meet at the centre, a ring of light rolls across the wall
   const tm = T0 + 6.3;
   const k = (t - tm) / 3.5;
   if (k <= 0 || k >= 1) return;
   const rad = k * 1500;
   const rg = ctx.createRadialGradient(CENTER[0], CENTER[1], Math.max(0, rad - 140), CENTER[0], CENTER[1], rad);
   rg.addColorStop(0, 'rgba(170,255,170,0)');
-  rg.addColorStop(0.7, `rgba(170,255,170,${0.22 * (1 - k)})`);
+  rg.addColorStop(0.7, `rgba(170,255,170,${0.18 * (1 - k)})`);
   rg.addColorStop(1, 'rgba(170,255,170,0)');
   ctx.fillStyle = rg;
   ctx.fillRect(0, 0, W, H);
 }
 
 function drawRoseGlow(t) {
-  // warm light spilling onto the wall as the roses open
   const k = ease((t - (T0 + 7)) / 8);
   if (k <= 0) return;
   for (const c of [[800, 300], [1040, 300], [918, 538], [790, 900], [1050, 900]]) {
     const rg = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], 380);
-    rg.addColorStop(0, `rgba(255,60,80,${0.16 * k})`);
+    rg.addColorStop(0, `rgba(255,60,80,${0.14 * k})`);
     rg.addColorStop(1, 'rgba(255,60,80,0)');
     ctx.fillStyle = rg;
     ctx.fillRect(0, 0, W, H);
@@ -335,28 +450,36 @@ function drawPetals(t) {
   }
 }
 
+function drawWall(t) {
+  drawSky(t);
+  drawHills(t);
+  drawTrees(t);
+  drawGround(t);
+  drawRuins(t);
+  drawLanterns(t);
+  drawLightning(t);
+  drawPulse(t);
+  drawRoseGlow(t);
+  drawFireflies(t);
+  drawVignette();
+}
+
 function renderAt(t) {
   t = ((t % DURATION) + DURATION) % DURATION;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
-  if (!NOBG) {
-    ctx.save();
-    clipPoly(WALL);
-    drawBackground(t);
-    drawPulse(t);
-    drawRoseGlow(t);
-    drawFireflies(t);
-    ctx.restore();
-  }
+  if (!NOBG) { ctx.save(); clipPoly(WALL); drawWall(t); ctx.restore(); }
   ctx.save();
   clipShape();
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
-  // faint wood warmth so the cross reads before the vines arrive
-  ctx.fillStyle = 'rgba(40, 24, 10, 0.5)';
+  // the cross: warm wood that catches the sunset, then the lantern light, then the lightning
+  ctx.fillStyle = mixc([70, 40, 18], [22, 14, 8], night(t));
   ctx.fillRect(0, 0, W, H);
+  const lf = lightningFlash(t);
+  if (lf > 0.01) { ctx.fillStyle = `rgba(190,160,255,${0.5 * lf})`; ctx.fillRect(0, 0, W, H); }
   for (const st of STRANDS) drawStrand(st, t);
   for (const ro of ROSES) {
     const st = STRANDS[ro.k];
@@ -373,6 +496,89 @@ function renderAt(t) {
   if (fade > 0) { ctx.fillStyle = `rgba(0,0,0,${fade})`; ctx.fillRect(0, 0, W, H); }
 }
 window.renderAt = renderAt;
+// ---- soundtrack: a mystical forest, synthesised with Web Audio and rendered offline.
+// renderAudio() returns a 16-bit stereo WAV as base64; the render script muxes it into the MP4.
+async function renderAudio() {
+  const SR = 48000, L = DURATION;
+  const ac = new OfflineAudioContext(2, SR * L, SR);
+  const master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
+  // one gentle "forest" reverb: short exponentially-decaying noise impulse
+  const conv = ac.createConvolver();
+  { const ir = ac.createBuffer(2, SR * 2.2, SR); for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3.2) * 0.4; } conv.buffer = ir; }
+  const wet = ac.createGain(); wet.gain.value = 0.35; conv.connect(wet); wet.connect(master);
+  const send = node => { node.connect(master); node.connect(conv); };
+  const noiseBuf = (secs, brown) => {
+    const b = ac.createBuffer(1, SR * secs, SR), d = b.getChannelData(0); let last = 0;
+    for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; }
+    return b;
+  };
+  const src = (buf, loop = true) => { const s = ac.createBufferSource(); s.buffer = buf; s.loop = loop; return s; };
+  const fade = (g, t0, t1, v) => { g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(v, t1); };
+
+  // wind: brown noise, slow swells, low-pass
+  { const n = src(noiseBuf(8, true)); const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.7;
+    const g = ac.createGain(); g.gain.value = 0;
+    for (let t = 0; t < L; t += 0.5) g.gain.linearRampToValueAtTime(0.16 + 0.10 * Math.sin(t * 0.37) + 0.06 * Math.sin(t * 0.91 + 1), t + 0.5);
+    const lfo = ac.createOscillator(); lfo.frequency.value = 0.09; const lg = ac.createGain(); lg.gain.value = 180; lfo.connect(lg); lg.connect(lp.frequency); lfo.start();
+    n.connect(lp); lp.connect(g); send(g); n.start(); }
+  // leaves: band-passed white noise in gusts
+  { const n = src(noiseBuf(6, false)); const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3200; bp.Q.value = 0.8;
+    const g = ac.createGain(); g.gain.value = 0;
+    for (let t = 0; t < L; t += 0.25) { const gust = Math.max(0, Math.sin(t * 0.52 + 0.8)) ** 3 * 0.07 + Math.max(0, Math.sin(t * 1.9 + 2)) ** 5 * 0.03; g.gain.linearRampToValueAtTime(gust + 0.012, t + 0.25); }
+    n.connect(bp); bp.connect(g); send(g); n.start(); }
+  // crickets: three chirpers at different rates, panned
+  for (const [f, rate, pan, start] of [[4300, 22, -0.6, 0.2], [3900, 17, 0.5, 1.1], [4700, 27, 0.1, 2.3]]) {
+    const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const trill = ac.createGain(); trill.gain.value = 0;
+    const lfo = ac.createOscillator(); lfo.type = 'square'; lfo.frequency.value = rate; const lg = ac.createGain(); lg.gain.value = 0.5; const off = ac.createConstantSource(); off.offset.value = 0.5;
+    lfo.connect(lg); lg.connect(trill.gain); off.connect(trill.gain); lfo.start(); off.start();
+    const env = ac.createGain(); env.gain.value = 0;
+    for (let t = start; t < L; t += 3.3) { env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.022, t + 0.3); env.gain.setValueAtTime(0.022, t + 1.6 + Math.sin(t) * 0.4); env.gain.linearRampToValueAtTime(0, t + 2.2); }
+    const p = ac.createStereoPanner(); p.pan.value = pan;
+    o.connect(trill); trill.connect(env); env.connect(p); p.connect(master); o.start(); }
+  // owl: two soft hoots
+  for (const t0 of [9.5, 21.0]) for (const [dt, len] of [[0, 0.55], [0.75, 0.9]]) {
+    const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(400, t0 + dt); o.frequency.exponentialRampToValueAtTime(330, t0 + dt + len);
+    const g = ac.createGain(); g.gain.setValueAtTime(0, t0 + dt); g.gain.linearRampToValueAtTime(0.09, t0 + dt + 0.12); g.gain.setValueAtTime(0.09, t0 + dt + len - 0.2); g.gain.linearRampToValueAtTime(0, t0 + dt + len);
+    o.connect(g); send(g); o.start(t0 + dt); o.stop(t0 + dt + len + 0.1); }
+  // thunder on the lightning
+  { const n = src(noiseBuf(5, true), false); const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(260, TL); lp.frequency.exponentialRampToValueAtTime(70, TL + 4);
+    const g = ac.createGain(); g.gain.setValueAtTime(0, TL); g.gain.linearRampToValueAtTime(0.9, TL + 0.08); g.gain.setValueAtTime(0.9, TL + 0.5); g.gain.exponentialRampToValueAtTime(0.001, TL + 4.5);
+    n.connect(lp); lp.connect(g); send(g); n.start(TL); }
+  // mystical pad: detuned voices, swelling in after the lightning, D minor, airy
+  for (const [f, det, vol, pan] of [[146.8, 0, 0.05, -0.3], [220.0, 3, 0.035, 0.3], [349.2, -4, 0.025, -0.1], [293.7, 6, 0.02, 0.2]]) {
+    const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = f; o.detune.value = det;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    const g = ac.createGain(); g.gain.setValueAtTime(0, 0); g.gain.setValueAtTime(0, TL + 0.6); g.gain.linearRampToValueAtTime(vol, TL + 6); g.gain.setValueAtTime(vol, L - 3); g.gain.linearRampToValueAtTime(0, L - 0.5);
+    const trem = ac.createOscillator(); trem.frequency.value = 0.21 + f / 2000; const tg = ac.createGain(); tg.gain.value = vol * 0.35; trem.connect(tg); tg.connect(g.gain); trem.start();
+    const p = ac.createStereoPanner(); p.pan.value = pan;
+    o.connect(lp); lp.connect(g); g.connect(p); p.connect(master); p.connect(conv); o.start(); }
+  // chimes as the roses open: sparse bell tones from a pentatonic set
+  { const r = mulberry32(9); const notes = [587.3, 659.3, 783.99, 880, 1046.5, 1174.7];
+    for (let t = T0 + 7.5; t < L - 4; t += 0.9 + r() * 1.6) {
+      const f = notes[Math.floor(r() * notes.length)];
+      for (const [mul, v] of [[1, 0.05], [2.76, 0.012], [5.4, 0.005]]) {
+        const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f * mul;
+        const g = ac.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0005, t + 2.2 / mul);
+        const p = ac.createStereoPanner(); p.pan.value = (r() - 0.5) * 1.2;
+        o.connect(g); g.connect(p); p.connect(master); p.connect(conv); o.start(t); o.stop(t + 2.5); } } }
+  // overall fade in / out to match the picture
+  { const env = ac.createGain(); master.disconnect(); master.connect(env); env.connect(ac.destination);
+    env.gain.setValueAtTime(0, 0); env.gain.linearRampToValueAtTime(1, 1.5); env.gain.setValueAtTime(1, L - 2); env.gain.linearRampToValueAtTime(0, L - 0.05); }
+
+  const buf = await ac.startRendering();
+  const n = buf.length, out = new DataView(new ArrayBuffer(44 + n * 4));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); str(8, 'WAVE'); str(12, 'fmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 2, true);
+  out.setUint32(24, SR, true); out.setUint32(28, SR * 4, true); out.setUint16(32, 4, true); out.setUint16(34, 16, true); str(36, 'data'); out.setUint32(40, n * 4, true);
+  const l = buf.getChannelData(0), rr = buf.getChannelData(1);
+  for (let i = 0, o = 44; i < n; i++, o += 4) { out.setInt16(o, Math.max(-1, Math.min(1, l[i])) * 32767, true); out.setInt16(o + 2, Math.max(-1, Math.min(1, rr[i])) * 32767, true); }
+  const bytes = new Uint8Array(out.buffer); let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+window.renderAudio = renderAudio;
+
 window.DURATION = DURATION;
 window.FPS = FPS;
 
