@@ -476,6 +476,18 @@ function surfaceInspector(o, s) {
     box.append(checkInput('Invert (light outside the shape)', mk.invert, v => { mk.invert = v; commit(); }));
   }
 
+  box.append(el('h3', { text: 'Cut out other surfaces' }));
+  const others = o.surfaces.filter(x => x !== s);
+  if (!others.length) box.append(el('p', { class: 'hint', text: 'Add another surface (the object in front) and tick it here to punch its shape out of this one.' }));
+  else {
+    box.append(el('p', { class: 'hint', text: 'Ticked surfaces are punched out of this one, masks included, even while they are hidden. Use it for a wall behind an object.' }));
+    for (const x of others) {
+      box.append(checkInput(x.name, s.cutouts.includes(x.id), v => { s.cutouts = v ? [...s.cutouts, x.id] : s.cutouts.filter(id => id !== x.id); commit(); }));
+    }
+    box.append(slider('Expand cut', s.cutExpand, 0, 100, 1, v => { s.cutExpand = v; commit(); }, v => `${v}px`));
+    box.append(el('p', { class: 'hint', text: 'Grows the hole for a safety margin. The hole edge is soft if the cut surface has soft edges or a mask soft edge.' }));
+  }
+
   box.append(el('h3', { text: 'Soft edges' }));
   for (const [k, label] of [['l', 'Left'], ['r', 'Right'], ['t', 'Top'], ['b', 'Bottom']]) {
     box.append(slider(label, s.feather[k], 0, 0.5, 0.005, v => { s.feather[k] = v; commit(); }, v => v.toFixed(3)));
@@ -496,6 +508,7 @@ function surfaceInspector(o, s) {
     })));
   box.append(el('div', { class: 'row end' }, btn('Delete surface', () => {
     o.surfaces = o.surfaces.filter(x => x !== s);
+    for (const x of o.surfaces) x.cutouts = (x.cutouts || []).filter(id => id !== s.id);
     state.selection = { outputId: o.id, surfaceId: null, point: null };
     commit(true);
   }, 'danger')));

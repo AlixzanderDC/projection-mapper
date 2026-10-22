@@ -25,7 +25,26 @@ uniform int uMaskN;      // 0 = no mask
 uniform vec2 uMask[32];  // polygon in surface space
 uniform float uMaskFeather;
 uniform int uMaskInvert;
+uniform sampler2D uCut;  // shapes of other surfaces to punch out (screen space)
+uniform int uHasCut;
+uniform float uCutExpand; // px
+uniform vec2 uRes;
 out vec4 outColor;
+float cutAt(vec2 uv) { return texture(uCut, uv).r; }
+float cutAmount() {
+  vec2 uv = gl_FragCoord.xy / uRes;
+  float cut = cutAt(uv);
+  if (uCutExpand > 0.0) {
+    vec2 r = uCutExpand / uRes;
+    for (int i = 0; i < 8; i++) {
+      float an = float(i) * 0.7853982;
+      vec2 d = vec2(cos(an), sin(an));
+      cut = max(cut, cutAt(uv + d * r));
+      cut = max(cut, cutAt(uv + d * r * 0.5));
+    }
+  }
+  return cut;
+}
 float segDist(vec2 p, vec2 a, vec2 b) {
   vec2 ab = b - a;
   float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
@@ -48,6 +67,7 @@ float maskAlpha(vec2 p) {
 void main() {
   vec3 rgb; float a = 1.0;
   if (uMaskN >= 3) { a = maskAlpha(vUV); if (a <= 0.0) discard; }
+  if (uHasCut == 1) { a *= 1.0 - cutAmount(); if (a <= 0.0) discard; }
   if (uMode == 2) {
     rgb = uColor;
   } else if (uMode == 1) {
@@ -141,7 +161,7 @@ export class Renderer {
     if (!gl) throw new Error('WebGL2 is not available in this browser.');
     this.gl = gl;
     this.canvas = canvas;
-    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv', 'uMaskN', 'uMask', 'uMaskFeather', 'uMaskInvert']);
+    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv', 'uMaskN', 'uMask', 'uMaskFeather', 'uMaskInvert', 'uCut', 'uHasCut', 'uCutExpand', 'uRes']);
     this.comp = program(gl, COMP_VS, COMP_FS, ['uScene', 'uRes', 'uBlendW', 'uBlendG', 'uBrightness', 'uGamma']);
 
     this.vao = gl.createVertexArray();
@@ -161,22 +181,74 @@ export class Renderer {
 
     this.fbo = gl.createFramebuffer();
     this.sceneTex = gl.createTexture();
+    this.cutFbo = gl.createFramebuffer();
+    this.cutTex = gl.createTexture();
     this.fboW = 0; this.fboH = 0;
   }
 
   ensureFbo(w, h) {
     if (w === this.fboW && h === this.fboH) return;
     const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.sceneTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.sceneTex, 0);
+    for (const [fbo, tex] of [[this.fbo, this.sceneTex], [this.cutFbo, this.cutTex]]) {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.fboW = w; this.fboH = h;
+  }
+
+  // Draws one surface with the surface program bound. `cutTex` = screen-space cut mask or null.
+  drawSurface(s, state, media, W, H, cutTex, cutExpand, asWhite) {
+    const gl = this.gl, u = this.surf.u;
+    const mesh = evalMesh(s, state.meshDensity);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, mesh.pos, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.uvBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, mesh.uv, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.idx, gl.DYNAMIC_DRAW);
+    const t = !asWhite && media && s.mediaId ? media.texture(s.mediaId) : null;
+    gl.activeTexture(gl.TEXTURE0);
+    if (t) {
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.uniform1i(u.uHasTex, 1);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.uniform1i(u.uHasTex, 0);
+    }
+    gl.uniform1i(u.uTex, 0);
+    gl.uniform4f(u.uRect, s.uv.x, s.uv.y, s.uv.w, s.uv.h);
+    gl.uniform4f(u.uFeather, s.feather.l, s.feather.r, s.feather.t, s.feather.b);
+    gl.uniform1f(u.uOpacity, asWhite ? 1 : s.opacity);
+    const mode = asWhite || s.fill === 'color' ? 2 : s.fill === 'grid' ? 1 : 0;
+    const [cr, cg, cb] = asWhite ? [1, 1, 1] : hexToRgb(s.color);
+    gl.uniform1i(u.uMode, mode);
+    gl.uniform3f(u.uColor, cr, cg, cb);
+    gl.uniform1f(u.uGridDiv, Math.max(1, s.gridDiv || 8));
+    const mk = s.mask;
+    if (mk && mk.enabled && mk.pts.length >= 3) {
+      const n = Math.min(32, mk.pts.length);
+      for (let i = 0; i < n; i++) { MASK_BUF[i * 2] = mk.pts[i].u; MASK_BUF[i * 2 + 1] = mk.pts[i].v; }
+      gl.uniform1i(u.uMaskN, n);
+      gl.uniform2fv(u.uMask, MASK_BUF);
+      gl.uniform1f(u.uMaskFeather, mk.feather || 0);
+      gl.uniform1i(u.uMaskInvert, mk.invert ? 1 : 0);
+    } else {
+      gl.uniform1i(u.uMaskN, 0);
+    }
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, cutTex);
+    gl.uniform1i(u.uCut, 1);
+    gl.uniform1i(u.uHasCut, cutTex ? 1 : 0);
+    gl.uniform1f(u.uCutExpand, cutExpand || 0);
+    gl.uniform2f(u.uRes, W, H);
+    gl.drawElements(gl.TRIANGLES, mesh.idx.length, gl.UNSIGNED_INT, 0);
   }
 
   // media: object with texture(mediaId) -> {tex} | null, or null for placeholders only.
@@ -195,49 +267,30 @@ export class Renderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(this.surf.prog);
     gl.bindVertexArray(this.vao);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, null); // never leave the scene texture bound while drawing into it
-    const u = this.surf.u;
     for (const s of output.surfaces) {
       if (!s.visible) continue;
-      const mesh = evalMesh(s, state.meshDensity);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.pos, gl.DYNAMIC_DRAW);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.uvBuf);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.uv, gl.DYNAMIC_DRAW);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.idx, gl.DYNAMIC_DRAW);
-      const t = media && s.mediaId ? media.texture(s.mediaId) : null;
-      if (t) {
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, t.tex);
-        gl.uniform1i(u.uTex, 0);
-        gl.uniform1i(u.uHasTex, 1);
-      } else {
+      const cuts = (s.cutouts || []).map(id => output.surfaces.find(x => x.id === id)).filter(x => x && x !== s);
+      let cutTex = null;
+      if (cuts.length) {
+        // Punch-out mask: the cut surfaces drawn white (with their masks and soft edges), hidden or not.
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.cutFbo);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.activeTexture(gl.TEXTURE1);
         gl.bindTexture(gl.TEXTURE_2D, null);
-        gl.uniform1i(u.uHasTex, 0);
+        for (const c of cuts) this.drawSurface(c, state, null, W, H, null, 0, true);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+        cutTex = this.cutTex;
       }
-      gl.uniform4f(u.uRect, s.uv.x, s.uv.y, s.uv.w, s.uv.h);
-      gl.uniform4f(u.uFeather, s.feather.l, s.feather.r, s.feather.t, s.feather.b);
-      gl.uniform1f(u.uOpacity, s.opacity);
-      const mode = s.fill === 'color' ? 2 : s.fill === 'grid' ? 1 : 0;
-      const [cr, cg, cb] = hexToRgb(s.color);
-      gl.uniform1i(u.uMode, mode);
-      gl.uniform3f(u.uColor, cr, cg, cb);
-      gl.uniform1f(u.uGridDiv, Math.max(1, s.gridDiv || 8));
-      const mk = s.mask;
-      if (mk && mk.enabled && mk.pts.length >= 3) {
-        const n = Math.min(32, mk.pts.length);
-        for (let i = 0; i < n; i++) { MASK_BUF[i * 2] = mk.pts[i].u; MASK_BUF[i * 2 + 1] = mk.pts[i].v; }
-        gl.uniform1i(u.uMaskN, n);
-        gl.uniform2fv(u.uMask, MASK_BUF);
-        gl.uniform1f(u.uMaskFeather, mk.feather || 0);
-        gl.uniform1i(u.uMaskInvert, mk.invert ? 1 : 0);
-      } else {
-        gl.uniform1i(u.uMaskN, 0);
-      }
-      gl.drawElements(gl.TRIANGLES, mesh.idx.length, gl.UNSIGNED_INT, 0);
+      this.drawSurface(s, state, media, W, H, cutTex, s.cutExpand, false);
     }
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(gl.TEXTURE0);
     gl.disable(gl.BLEND);
 
     // Pass 2: edge blend + brightness/gamma to the screen.

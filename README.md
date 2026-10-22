@@ -67,6 +67,10 @@ For shapes with holes or notches, use a **Mask**: a polygon in surface space tha
 
 An X-shaped cross: one surface, corner-pinned to the four tips of the X (the cross's bounding box), mask preset **X cross**, arm width to match the beams, nudge the points. Show it as a Grid or Solid while fitting, then switch to the Source.
 
+## An object in front of a wall
+
+Map the wall as one surface and the object as another. In the wall surface's inspector, under **Cut out other surfaces**, tick the object. The object's shape (mask included) is punched out of the wall, so the wall content never lands on the object. The hole stays when the object surface is hidden, so you can light the wall alone. **Expand cut** grows the hole by a few pixels for a safety margin; a soft hole edge comes from the object surface's own soft edges or mask soft edge.
+
 ## Making content for a mapped shape
 
 Once a shape is mapped, you usually want video made for it rather than a rectangle warped onto it. In the projector inspector, **Content template** gives you two files at the projector's real resolution (open the projector window first so the size is right):

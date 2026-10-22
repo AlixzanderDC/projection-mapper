@@ -12,8 +12,8 @@ export function silhouettePng(output, state) {
     ...output,
     brightness: 1, gamma: 1,
     blend: { left: { w: 0, g: 1 }, right: { w: 0, g: 1 }, top: { w: 0, g: 1 }, bottom: { w: 0, g: 1 } },
-    surfaces: output.surfaces.filter(s => s.visible).map(s => ({
-      ...s, id: s.id + ':tpl', fill: 'color', color: '#ffffff', opacity: 1,
+    surfaces: output.surfaces.map(s => ({
+      ...s, fill: 'color', color: '#ffffff', opacity: 1,
       feather: { l: 0, r: 0, t: 0, b: 0 },
       mask: s.mask ? { ...s.mask, feather: 0 } : s.mask,
     })),

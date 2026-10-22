@@ -78,6 +78,8 @@ export function makeSurface(index, mediaId = null) {
     gridDiv: 8,                           // grid cells across the surface
     interp: 'smooth',                     // 'smooth' (curves through points) | 'linear' (straight between points)
     mask: { enabled: false, pts: [], feather: 0, invert: false },  // polygon in surface space (u,v)
+    cutouts: [],                          // ids of surfaces whose shapes are punched out of this one
+    cutExpand: 0,                         // grow the hole by this many output pixels
     visible: true,
     locked: false,
   };
@@ -93,6 +95,8 @@ export function upgradeSurface(s) {
   if (!(s.gridDiv >= 1)) s.gridDiv = 8;
   if (s.interp !== 'linear') s.interp = 'smooth';
   if (!s.mask || !Array.isArray(s.mask.pts)) s.mask = { enabled: false, pts: [], feather: 0, invert: false };
+  if (!Array.isArray(s.cutouts)) s.cutouts = [];
+  if (!(s.cutExpand >= 0)) s.cutExpand = 0;
   return s;
 }
 
