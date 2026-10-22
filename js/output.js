@@ -18,7 +18,7 @@ let calib = null; // {mode:'black'|'marker'|'markers', markers:[{x,y,n}]} while 
 
 try {
   renderer = new Renderer(glCanvas);
-  media = new MediaProvider(renderer.gl, { audio: false });
+  media = new MediaProvider(renderer.gl, { audio: false, under: document.body });
 } catch (e) {
   hud.textContent = e.message;
 }

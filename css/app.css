@@ -71,7 +71,8 @@ button:disabled { opacity: .45; cursor: default; }
 
 .center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .previewWrap { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; background: #000; min-height: 0; overflow: hidden; }
-.previewWrap canvas { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.previewWrap canvas { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1; }
+.previewWrap .diag, .previewWrap .badge, .previewWrap .empty { z-index: 2; }
 #previewOverlay { outline: none; cursor: crosshair; }
 #previewOverlay:focus { box-shadow: 0 0 0 1px var(--accent); }
 .diag { position: absolute; left: 8px; bottom: 8px; margin: 0; max-width: calc(100% - 16px); background: rgba(0,0,0,.8); color: #9f9; font: 11px/1.4 ui-monospace, monospace; padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; pointer-events: none; }
@@ -107,11 +108,12 @@ details.help ol { padding-left: 18px; }
 /* projector window */
 body.output { background: #000; cursor: default; }
 body.output.nocursor { cursor: none; }
-body.output canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: none; }
+body.output canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: none; z-index: 1; }
+body.output .mediaHolder { position: fixed; z-index: 0; }
 #overlay { cursor: crosshair; }
 body.output.nocursor #overlay { cursor: none; }
 .hud {
-  position: fixed; left: 10px; top: 10px; padding: 6px 10px; border-radius: 6px;
+  position: fixed; left: 10px; top: 10px; z-index: 2; padding: 6px 10px; border-radius: 6px;
   background: rgba(0,0,0,.65); color: #fff; font-size: 13px; pointer-events: none; max-width: 90vw;
 }
 

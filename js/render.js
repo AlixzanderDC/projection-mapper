@@ -157,7 +157,10 @@ function program(gl, vs, fs, uniforms) {
 
 export class Renderer {
   constructor(canvas) {
-    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+    // alpha:true on purpose: Chrome's compositor then cannot treat this canvas as an opaque cover,
+    // so the video elements placed underneath it keep being "drawn" and decode at full rate.
+    // The composite pass always writes alpha 1, so the output looks identical.
+    const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false });
     if (!gl) throw new Error('WebGL2 is not available in this browser.');
     this.gl = gl;
     this.canvas = canvas;

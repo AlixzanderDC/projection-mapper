@@ -554,7 +554,7 @@ let renderer = null;
 let media = null;
 try {
   renderer = new Renderer(previewCanvas);
-  media = new MediaProvider(renderer.gl, { audio: true });
+  media = new MediaProvider(renderer.gl, { audio: true, under: $('#previewWrap') });
   media.onMeta = (id, info) => { mediaInfo.set(id, { ...info, error: false }); rebuildLists(); };
   media.onError = id => { mediaInfo.set(id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); };
 
@@ -578,6 +578,7 @@ function fitPreview() {
   }
   w = Math.max(1, Math.floor(w)); h = Math.max(1, Math.floor(h));
   const dpr = window.devicePixelRatio || 1;
+  if (media) { const hs = media.holder.style; hs.left = '50%'; hs.top = '50%'; hs.transform = 'translate(-50%, -50%)'; hs.width = w + 'px'; hs.height = h + 'px'; }
   for (const c of [previewCanvas, overlayCanvas]) {
     if (c.style.width !== w + 'px') c.style.width = w + 'px';
     if (c.style.height !== h + 'px') c.style.height = h + 'px';
