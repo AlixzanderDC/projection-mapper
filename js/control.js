@@ -64,7 +64,7 @@ bc.onmessage = ({ data: msg }) => {
     case 'status': {
       outputStatus.set(msg.outputId, { ...msg, lastSeen: Date.now() });
       const o = C.findOutput(state, msg.outputId);
-      if (o && (o.width !== msg.width || o.height !== msg.height)) {
+      if (o && msg.width >= 64 && msg.height >= 64 && (o.width !== msg.width || o.height !== msg.height)) {
         o.width = msg.width; o.height = msg.height;
         commit(false);
         updateStatusTexts();
@@ -311,7 +311,7 @@ function rebuildInspector() {
   if (s) box.append(surfaceInspector(o, s));
   else if (o) box.append(outputInspector(o));
   box.append(settingsPanel(!!o));
-  fitPreview();
+  needFit = true;
 }
 
 function outputInspector(o) {
@@ -454,7 +454,7 @@ function fitPreview() {
   const o = currentOutput();
   const aw = Math.max(50, wrap.clientWidth - 24), ah = Math.max(50, wrap.clientHeight - 24);
   let w = aw, h = ah;
-  if (o) {
+  if (o && o.width > 0 && o.height > 0) {
     const ar = o.width / o.height;
     if (aw / ah > ar) { h = ah; w = ah * ar; } else { w = aw; h = aw / ar; }
   }
@@ -484,6 +484,7 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
   $('#cameraPanel').hidden = activeTab !== 'camera';
   $('#previewWrap').hidden = activeTab !== 'preview';
   $('#previewWrap').nextElementSibling.hidden = activeTab !== 'preview';
+  needFit = true;
 }));
 
 // The control window only decodes what it shows in the preview, plus whatever is
@@ -497,11 +498,15 @@ function usedInControl() {
 }
 let fpsCount = 0, fpsAt = performance.now(), fps = 0;
 
+let frameMs = 0, worstMs = 0, needFit = true;
+window.addEventListener('resize', () => { needFit = true; });
+
 function frame() {
-  if (++fpsCount >= 30) { const now = performance.now(); fps = Math.round(fpsCount * 1000 / (now - fpsAt)); fpsCount = 0; fpsAt = now; }
+  const t0 = performance.now();
+  if (++fpsCount >= 30) { fps = Math.round(fpsCount * 1000 / (t0 - fpsAt)); fpsCount = 0; fpsAt = t0; worstMs = 0; }
   if (media) { media.sync(state, usedInControl()); media.tick(state.transport); }
   if (activeTab === 'camera') { camera.draw(); updateTransportUI(); requestAnimationFrame(frame); return; }
-  fitPreview();
+  if (needFit) { fitPreview(); needFit = false; }
   const o = currentOutput();
   const ctx = overlayCanvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -509,12 +514,15 @@ function frame() {
   if (o && renderer) {
     renderer.render(o, state, previewMedia ? media : null);
     drawOverlay(ctx, o, state, overlayCanvas.width / dpr, overlayCanvas.height / dpr, { density: state.meshDensity, handles: true });
-    $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height} · ${fps} fps` + (state.selection.surfaceId ? ' · drag points, arrows nudge (shift = 10px), Tab cycles points' : ' · click a surface to edit it');
+    const st = media ? media.stats() : { videos: 0, dropped: 0, errors: 0 };
+    $('#previewInfo').textContent = `${o.name} · ${o.width}×${o.height} · ${fps} fps · ${frameMs.toFixed(1)} ms (worst ${worstMs.toFixed(0)}) · ${st.videos} video${st.videos === 1 ? '' : 's'} decoding here` + (st.dropped ? ` · ${st.dropped} dropped` : '') + (st.errors ? ` · ${st.errors} cannot play` : '');
   } else {
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     $('#previewInfo').textContent = '';
   }
   updateTransportUI();
+  frameMs = performance.now() - t0;
+  if (frameMs > worstMs) worstMs = frameMs;
   requestAnimationFrame(frame);
 }
 

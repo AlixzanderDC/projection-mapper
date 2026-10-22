@@ -68,7 +68,7 @@ code { background: #0e0f12; padding: 0 4px; border-radius: 4px; }
 .dot.on { background: #3ddc84; box-shadow: 0 0 6px #3ddc84; }
 
 .center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.previewWrap { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; background: #000; min-height: 0; }
+.previewWrap { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; background: #000; min-height: 0; overflow: hidden; }
 .previewWrap canvas { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 #previewOverlay { outline: none; cursor: crosshair; }
 #previewOverlay:focus { box-shadow: 0 0 0 1px var(--accent); }

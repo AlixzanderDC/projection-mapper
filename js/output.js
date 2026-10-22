@@ -111,7 +111,8 @@ function frame() {
     document.title = o.name;
     if (o.editOverlay) {
       hud.style.display = '';
-      hud.textContent = `${o.name} · ${glCanvas.width}×${glCanvas.height} · ${fps} fps` + (document.fullscreenElement ? '' : ' · F or double-click = fullscreen') + ' · E = hide handles · T = test pattern · drag points, arrows nudge';
+      const stq = media.stats();
+      hud.textContent = `${o.name} · ${glCanvas.width}×${glCanvas.height} · ${fps} fps · ${stq.videos} video${stq.videos === 1 ? '' : 's'}${stq.dropped ? ` · ${stq.dropped} dropped` : ''}` + (document.fullscreenElement ? '' : ' · F or double-click = fullscreen') + ' · E = hide handles · T = test pattern · drag points, arrows nudge';
     } else {
       hud.style.display = 'none';
     }
