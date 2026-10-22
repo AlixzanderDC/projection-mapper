@@ -100,7 +100,7 @@ Projector window: **F** or double-click = fullscreen · **E** show/hide handles 
 - `media/` — your content. Ignored by git. Anything you drop here shows up after **Rescan media/**.
 - **Add files…** loads content for this session only (it is not copied anywhere); after a reload those entries show as *missing* until you add the same files again.
 - Video: MP4 (H.264) and WebM (VP9/AV1) play in every browser. HEVC/H.265 plays in Chrome and Edge but not Firefox. ProRes and other editing codecs do not play in browsers — export a delivery file.
-- Audio plays from the control window only; projector windows are muted.
+- Audio plays from the control window only; projector windows are muted. Audio files (MP3, WAV, M4A…) in the bin are soundtracks: they run in sync with the transport whenever **Audio** is above 0.
 - Each window decodes only the files its surfaces show. The control window decodes nothing by default: its preview shows a still frame of each file. Tick **Play video in this preview** or raise **Audio** above 0 and it starts decoding too.
 
 ## Memory

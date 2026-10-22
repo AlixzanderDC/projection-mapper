@@ -200,7 +200,7 @@ const fmtTime = s => {
 function addMediaFiles(files) {
   let n = 0;
   for (const f of files) {
-    const kind = C.kindFromName(f.name) || (f.type.startsWith('video') ? 'video' : f.type.startsWith('image') ? 'image' : null);
+    const kind = C.kindFromName(f.name) || (f.type.startsWith('video') ? 'video' : f.type.startsWith('image') ? 'image' : f.type.startsWith('audio') ? 'audio' : null);
     if (!kind) continue;
     const url = URL.createObjectURL(f);
     const existing = state.media.find(m => m.name === f.name && m.missing);
@@ -269,7 +269,7 @@ function removeOutput(o) {
 }
 
 function addSurface(o) {
-  const s = C.makeSurface(o.surfaces.length + 1, state.media.find(m => !m.missing)?.id ?? null);
+  const s = C.makeSurface(o.surfaces.length + 1, state.media.find(m => !m.missing && m.kind !== 'audio')?.id ?? null);
   o.surfaces.push(s);
   state.selection = { outputId: o.id, surfaceId: s.id, point: null };
   commit(true);
@@ -315,7 +315,7 @@ function rebuildLists() {
     const info = mediaInfo.get(m.id);
     let meta = m.kind;
     if (info?.error) meta = 'cannot load';
-    else if (info) meta = info.duration ? `${info.width}×${info.height} · ${fmtTime(info.duration)}` : `${info.width}×${info.height}`;
+    else if (info) meta = m.kind === 'audio' ? `audio · ${fmtTime(info.duration)}` : info.duration ? `${info.width}×${info.height} · ${fmtTime(info.duration)}` : `${info.width}×${info.height}`;
     if (m.missing) meta = 'missing — Add files… to relink';
     ml.append(el('div', { class: 'item' + (m.missing || info?.error ? ' warn' : '') },
       el('div', { class: 'grow' }, el('div', { class: 'title', text: m.name }), el('div', { class: 'meta', text: meta })),
@@ -424,7 +424,7 @@ function surfaceInspector(o, s) {
   box.append(el('h2', { text: 'Surface' }), el('div', { class: 'crumb', text: o.name }));
   box.append(field('Name', textInput(s.name, v => { s.name = v; commit(true); })));
   box.append(field('Source', selectInput(s.mediaId ?? '',
-    [{ value: '', label: '(none — checkerboard)' }, ...state.media.map(m => ({ value: m.id, label: m.name + (m.missing ? ' (missing)' : '') }))],
+    [{ value: '', label: '(none — checkerboard)' }, ...state.media.filter(m => m.kind !== 'audio').map(m => ({ value: m.id, label: m.name + (m.missing ? ' (missing)' : '') }))],
     v => { s.mediaId = v || null; commit(true); })));
   box.append(field('Show', selectInput(s.fill,
     [{ value: 'source', label: 'Source' }, { value: 'grid', label: 'Grid (for lining up)' }, { value: 'color', label: 'Solid color' }],
@@ -593,7 +593,10 @@ function usedInControl() {
   const o = currentOutput();
   const ids = new Set();
   if (previewMedia && o) for (const id of C.usedMedia(state, o)) ids.add(id);
-  if (state.transport.volume > 0) for (const id of C.usedMedia(state)) ids.add(id);
+  if (state.transport.volume > 0) {
+    for (const id of C.usedMedia(state)) ids.add(id);
+    for (const m of state.media) if (m.kind === 'audio') ids.add(m.id);   // soundtracks play from here
+  }
   return mid => ids.has(mid);
 }
 let fpsCount = 0, fpsAt = performance.now(), fps = 0;
@@ -653,6 +656,12 @@ function probeMedia() {
       });
       v.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
       v.src = m.url;
+    } else if (m.kind === 'audio') {
+      const a = document.createElement('audio');
+      a.preload = 'metadata';
+      a.addEventListener('loadedmetadata', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: a.duration, width: 0, height: 0, error: false }); rebuildLists(); } a.removeAttribute('src'); a.load(); });
+      a.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
+      a.src = m.url;
     } else {
       const i = new Image();
       i.addEventListener('load', () => {

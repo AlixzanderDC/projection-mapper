@@ -35,13 +35,13 @@ export class MediaProvider {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     let el;
-    if (m.kind === 'video') {
-      el = document.createElement('video');
+    if (m.kind === 'video' || m.kind === 'audio') {
+      el = document.createElement(m.kind);
       el.muted = !this.audio;
       el.playsInline = true;
       el.preload = 'auto';
       el.loop = true;
-      el.addEventListener('loadedmetadata', () => this.onMeta?.(m.id, { duration: el.duration, width: el.videoWidth, height: el.videoHeight }));
+      el.addEventListener('loadedmetadata', () => this.onMeta?.(m.id, { duration: el.duration, width: el.videoWidth || 0, height: el.videoHeight || 0 }));
       el.addEventListener('error', () => this.onError?.(m.id));
       el.src = m.url;
       el.load();
@@ -57,7 +57,7 @@ export class MediaProvider {
   remove(id) {
     const it = this.items.get(id);
     if (!it) return;
-    if (it.kind === 'video') { it.el.pause(); it.el.removeAttribute('src'); it.el.load(); }
+    if (it.kind !== 'image') { it.el.pause(); it.el.removeAttribute('src'); it.el.load(); }
     this.gl.deleteTexture(it.tex);
     this.items.delete(id);
   }
@@ -95,6 +95,8 @@ export class MediaProvider {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, el);
         it.uploaded = true;
       }
+    } else if (it.kind === 'audio') {
+      return null;
     } else if (el.readyState >= 2 && (el.currentTime !== it.lastT || !it.uploaded)) {
       gl.bindTexture(gl.TEXTURE_2D, it.tex);
       try {
@@ -111,7 +113,7 @@ export class MediaProvider {
   stats() {
     let videos = 0, dropped = 0, errors = 0;
     for (const it of this.items.values()) {
-      if (it.kind !== 'video') continue;
+      if (it.kind === 'image') continue;
       videos++;
       if (it.playError) errors++;
       const q = it.el.getVideoPlaybackQuality?.();
@@ -124,7 +126,7 @@ export class MediaProvider {
     const t = transportTime(transport, now);
     const correct = now - this.lastCorrect > 400;
     for (const it of this.items.values()) {
-      if (it.kind !== 'video') continue;
+      if (it.kind === 'image') continue;
       const v = it.el, d = v.duration;
       if (!(d > 0) || !isFinite(d)) continue;
       const target = transport.loop ? t % d : Math.min(t, d);

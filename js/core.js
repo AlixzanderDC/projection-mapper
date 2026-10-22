@@ -7,6 +7,7 @@ export const MIN_GRID = 2;
 export const MAX_GRID = 12;
 export const VIDEO_EXT = ['mp4', 'm4v', 'webm', 'mov', 'ogv', 'mkv'];
 export const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif'];
+export const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'oga', 'm4a', 'aac', 'flac', 'opus'];
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -15,6 +16,7 @@ export function kindFromName(name) {
   const ext = (name.split('.').pop() || '').toLowerCase();
   if (VIDEO_EXT.includes(ext)) return 'video';
   if (IMAGE_EXT.includes(ext)) return 'image';
+  if (AUDIO_EXT.includes(ext)) return 'audio';
   return null;
 }
 

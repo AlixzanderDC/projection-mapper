@@ -5,5 +5,6 @@ Best formats for the browser:
   - WebM (VP9 / AV1) — plays everywhere, good for 4K
   - HEVC / H.265 MP4 — Chrome and Edge only (not Firefox)
   - PNG / JPG / WebP for stills
+  - MP3 / WAV / M4A for soundtracks (they play from the control window, in sync with the transport)
 
 Files here are ignored by git.
