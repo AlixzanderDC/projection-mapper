@@ -59,7 +59,7 @@ bc.onmessage = ({ data: msg }) => {
       bc.postMessage({ type: 'state', state });
       break;
     case 'op':
-      if (C.applyOp(state, msg.op)) commit(['select', 'toggle', 'cycleFill'].includes(msg.op.type));
+      if (C.applyOp(state, msg.op)) commit(['select', 'toggle', 'cycleFill', 'addMaskPoint', 'removeMaskPoint'].includes(msg.op.type));
       break;
     case 'status': {
       outputStatus.set(msg.outputId, { ...msg, lastSeen: Date.now() });
@@ -378,7 +378,8 @@ function surfaceInspector(o, s) {
   cols.addEventListener('change', apply);
   rows.addEventListener('change', apply);
   box.append(el('div', { class: 'row' }, field('Columns', cols), field('Rows', rows)));
-  box.append(el('p', { class: 'hint', text: '2×2 is a corner pin (perspective-correct, for flat surfaces). More points let the image bend around columns, domes and curved walls. Changing the grid keeps the current shape.' }));
+  box.append(field('Between points', selectInput(s.interp, [{ value: 'smooth', label: 'Smooth curve' }, { value: 'linear', label: 'Straight lines' }], v => { s.interp = v; commit(); })));
+  box.append(el('p', { class: 'hint', text: '2×2 is a corner pin (perspective-correct, for flat surfaces). More points let the image follow the object: Smooth bends through them (columns, domes), Straight creases at them (boxes, crosses, folded walls). Changing the grid keeps the current shape.' }));
   box.append(el('div', { class: 'row' },
     btn('Straighten', () => { C.applyOp(state, { type: 'flatten', surfaceId: s.id }); commit(); }),
     btn('Reset shape', () => { C.applyOp(state, { type: 'resetShape', surfaceId: s.id }); commit(); })));
@@ -391,6 +392,21 @@ function surfaceInspector(o, s) {
   const tn = numInput(2, 1, 8, 1), ti = numInput(1, 1, 8, 1);
   box.append(el('div', { class: 'row' }, field('Split into', tn), field('Piece #', ti),
     btn('Apply', () => { const n = C.clamp(+tn.value || 1, 1, 8), i = C.clamp(+ti.value || 1, 1, n); s.uv.x = (i - 1) / n; s.uv.w = 1 / n; s.uv.y = 0; s.uv.h = 1; commit(true); })));
+
+  box.append(el('h3', { text: 'Mask' }));
+  const mk = s.mask;
+  box.append(checkInput('Use mask', mk.enabled, v => { if (v && mk.pts.length < 3) mk.pts = C.maskPreset('rect'); mk.enabled = v; commit(true); }));
+  if (mk.enabled) {
+    const arm = numInput(0.25, 0.02, 0.48, 0.01);
+    const preset = kind => () => { C.applyOp(state, { type: 'setMask', surfaceId: s.id, preset: kind, arm: parseFloat(arm.value) || 0.25 }); commit(true); };
+    box.append(el('div', { class: 'row wrap' }, btn('X cross', preset('x')), btn('Plus', preset('plus')), btn('Diamond', preset('diamond')), btn('Rectangle', preset('rect')), field('Arm width', arm)));
+    box.append(el('p', { class: 'hint', text: `${mk.pts.length} points. Drag the pink diamonds in the preview or on the projector. Click one and press Insert (or +) to add a point after it, Delete to remove it.` }));
+    box.append(el('div', { class: 'row' },
+      btn('Add point', () => { C.applyOp(state, { type: 'addMaskPoint', surfaceId: s.id, after: state.selection.point?.mask ?? null }); commit(true); }),
+      btn('Remove selected', () => { const i = state.selection.point?.mask; if (i != null) { C.applyOp(state, { type: 'removeMaskPoint', surfaceId: s.id, i }); commit(true); } })));
+    box.append(slider('Mask soft edge', mk.feather, 0, 0.2, 0.002, v => { mk.feather = v; commit(); }, v => v.toFixed(3)));
+    box.append(checkInput('Invert (light outside the shape)', mk.invert, v => { mk.invert = v; commit(); }));
+  }
 
   box.append(el('h3', { text: 'Soft edges' }));
   for (const [k, label] of [['l', 'Left'], ['r', 'Right'], ['t', 'Top'], ['b', 'Bottom']]) {
@@ -446,7 +462,7 @@ try {
 
 new Editor(overlayCanvas, {
   get: () => ({ state, output: currentOutput() }),
-  send: op => { if (C.applyOp(state, op)) commit(op.type === 'select' || op.type === 'cycleFill'); },
+  send: op => { if (C.applyOp(state, op)) commit(['select', 'cycleFill', 'addMaskPoint', 'removeMaskPoint'].includes(op.type)); },
 });
 
 function fitPreview() {

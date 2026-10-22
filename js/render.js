@@ -1,5 +1,5 @@
 // render.js — WebGL2 renderer for one output, plus the 2D handle/test-pattern overlay.
-import { evalMesh, outline } from './core.js';
+import { evalMesh, outline, surfaceFn } from './core.js';
 
 const SURF_VS = `#version 300 es
 layout(location=0) in vec2 aPos;
@@ -21,9 +21,33 @@ uniform float uOpacity;
 uniform int uMode;       // 0 source, 1 grid, 2 solid color
 uniform vec3 uColor;
 uniform float uGridDiv;
+uniform int uMaskN;      // 0 = no mask
+uniform vec2 uMask[32];  // polygon in surface space
+uniform float uMaskFeather;
+uniform int uMaskInvert;
 out vec4 outColor;
+float segDist(vec2 p, vec2 a, vec2 b) {
+  vec2 ab = b - a;
+  float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
+  return length(p - (a + ab * t));
+}
+float maskAlpha(vec2 p) {
+  bool inside = false;
+  float d = 1e9;
+  for (int i = 0; i < 32; i++) {
+    if (i >= uMaskN) break;
+    vec2 a = uMask[i];
+    vec2 b = uMask[(i + 1 < uMaskN) ? i + 1 : 0];
+    if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    d = min(d, segDist(p, a, b));
+  }
+  if (uMaskInvert == 1) inside = !inside;
+  if (!inside) return 0.0;
+  return uMaskFeather > 0.0 ? smoothstep(0.0, uMaskFeather, d) : 1.0;
+}
 void main() {
   vec3 rgb; float a = 1.0;
+  if (uMaskN >= 3) { a = maskAlpha(vUV); if (a <= 0.0) discard; }
   if (uMode == 2) {
     rgb = uColor;
   } else if (uMode == 1) {
@@ -50,6 +74,8 @@ void main() {
   if (uFeather.w > 0.0) a *= smoothstep(0.0, uFeather.w, 1.0 - vUV.y);
   outColor = vec4(rgb, a * uOpacity);
 }`;
+
+const MASK_BUF = new Float32Array(64);
 
 const COMP_VS = `#version 300 es
 out vec2 vUV;
@@ -115,7 +141,7 @@ export class Renderer {
     if (!gl) throw new Error('WebGL2 is not available in this browser.');
     this.gl = gl;
     this.canvas = canvas;
-    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv']);
+    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv', 'uMaskN', 'uMask', 'uMaskFeather', 'uMaskInvert']);
     this.comp = program(gl, COMP_VS, COMP_FS, ['uScene', 'uRes', 'uBlendW', 'uBlendG', 'uBrightness', 'uGamma']);
 
     this.vao = gl.createVertexArray();
@@ -199,6 +225,17 @@ export class Renderer {
       gl.uniform1i(u.uMode, mode);
       gl.uniform3f(u.uColor, cr, cg, cb);
       gl.uniform1f(u.uGridDiv, Math.max(1, s.gridDiv || 8));
+      const mk = s.mask;
+      if (mk && mk.enabled && mk.pts.length >= 3) {
+        const n = Math.min(32, mk.pts.length);
+        for (let i = 0; i < n; i++) { MASK_BUF[i * 2] = mk.pts[i].u; MASK_BUF[i * 2 + 1] = mk.pts[i].v; }
+        gl.uniform1i(u.uMaskN, n);
+        gl.uniform2fv(u.uMask, MASK_BUF);
+        gl.uniform1f(u.uMaskFeather, mk.feather || 0);
+        gl.uniform1i(u.uMaskInvert, mk.invert ? 1 : 0);
+      } else {
+        gl.uniform1i(u.uMaskN, 0);
+      }
       gl.drawElements(gl.TRIANGLES, mesh.idx.length, gl.UNSIGNED_INT, 0);
     }
     gl.disable(gl.BLEND);
@@ -268,6 +305,35 @@ export function drawOverlay(ctx, output, state, W, H, opts = {}) {
     ctx.fillRect(l.x * W + 10, l.y * H - 20, tw + 8, 16);
     ctx.fillStyle = isSel ? '#2ee6ff' : '#fff';
     ctx.fillText(label, l.x * W + 14, l.y * H - 6);
+
+    // mask polygon + handles (selected surface only)
+    if (isSel && s.mask && s.mask.enabled && s.mask.pts.length >= 3) {
+      const f = surfaceFn(s);
+      const mp = s.mask.pts;
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#ff6ad5';
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      for (let i = 0; i < mp.length; i++) {
+        const a = mp[i], b = mp[(i + 1) % mp.length];
+        for (let k = 0; k <= 8; k++) {
+          const t = k / 8, p = f(a.u + (b.u - a.u) * t, a.v + (b.v - a.v) * t);
+          (i === 0 && k === 0) ? ctx.moveTo(p.x * W, p.y * H) : ctx.lineTo(p.x * W, p.y * H);
+        }
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      mp.forEach((m, i) => {
+        const p = f(m.u, m.v), x = p.x * W, y = p.y * H;
+        const on = sel.point && sel.point.mask === i;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 7); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 7, y); ctx.closePath();
+        ctx.fillStyle = on ? '#ffe74c' : '#ff6ad5';
+        ctx.fill();
+        ctx.lineWidth = 1.5; ctx.strokeStyle = '#000'; ctx.stroke();
+      });
+    }
 
     // control points
     for (let r = 0; r < s.rows; r++) {

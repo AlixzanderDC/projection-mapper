@@ -76,19 +76,44 @@ export function makeSurface(index, mediaId = null) {
     fill: 'source',                       // 'source' | 'grid' | 'color'
     color: '#ffffff',                     // used by grid lines and solid fill
     gridDiv: 8,                           // grid cells across the surface
+    interp: 'smooth',                     // 'smooth' (curves through points) | 'linear' (straight between points)
+    mask: { enabled: false, pts: [], feather: 0, invert: false },  // polygon in surface space (u,v)
     visible: true,
     locked: false,
   };
 }
 
 export const FILL_MODES = ['source', 'grid', 'color'];
+export const MAX_MASK_PTS = 32;
 
 // Fill in fields added after a show was saved.
 export function upgradeSurface(s) {
   if (!FILL_MODES.includes(s.fill)) s.fill = 'source';
   if (typeof s.color !== 'string') s.color = '#ffffff';
   if (!(s.gridDiv >= 1)) s.gridDiv = 8;
+  if (s.interp !== 'linear') s.interp = 'smooth';
+  if (!s.mask || !Array.isArray(s.mask.pts)) s.mask = { enabled: false, pts: [], feather: 0, invert: false };
   return s;
+}
+
+// Mask presets in surface space. `a` is the arm width as a fraction of the surface (0–0.5).
+export function maskPreset(kind, a = 0.25) {
+  a = clamp(a, 0.02, 0.48);
+  if (kind === 'x') {
+    return [
+      [0, 0], [a, 0], [0.5, 0.5 - a], [1 - a, 0], [1, 0], [1, a], [0.5 + a, 0.5], [1, 1 - a],
+      [1, 1], [1 - a, 1], [0.5, 0.5 + a], [a, 1], [0, 1], [0, 1 - a], [0.5 - a, 0.5], [0, a],
+    ].map(([u, v]) => ({ u, v }));
+  }
+  if (kind === 'plus') {
+    const h = a / 2;
+    return [
+      [0.5 - h, 0], [0.5 + h, 0], [0.5 + h, 0.5 - h], [1, 0.5 - h], [1, 0.5 + h], [0.5 + h, 0.5 + h],
+      [0.5 + h, 1], [0.5 - h, 1], [0.5 - h, 0.5 + h], [0, 0.5 + h], [0, 0.5 - h], [0.5 - h, 0.5 - h],
+    ].map(([u, v]) => ({ u, v }));
+  }
+  if (kind === 'diamond') return [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]].map(([u, v]) => ({ u, v }));
+  return [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => ({ u, v }));
 }
 
 // Media ids used by visible surfaces of one output (or of every output when null).
@@ -156,6 +181,16 @@ function catmullRom(p0, p1, p2, p3, t) {
     + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
 }
 
+function lerp1D(arr, t) {
+  const n = arr.length;
+  if (n === 1) return arr[0];
+  const x = t * (n - 1);
+  let i = Math.floor(x);
+  if (i >= n - 1) i = n - 2;
+  const f = x - i;
+  return arr[i] * (1 - f) + arr[i + 1] * f;
+}
+
 // Interpolate an array of samples at t in [0,1] with a clamped Catmull-Rom spline.
 function sample1D(arr, t) {
   const n = arr.length;
@@ -185,10 +220,33 @@ export function surfaceFn(s) {
     }
   }
   const tx = new Array(rows), ty = new Array(rows);
+  const S = s.interp === 'linear' ? lerp1D : sample1D;
   return (u, v) => {
     const h = H(u, v);
-    for (let r = 0; r < rows; r++) { tx[r] = sample1D(offX[r], u); ty[r] = sample1D(offY[r], u); }
-    return { x: h.x + sample1D(tx, v), y: h.y + sample1D(ty, v) };
+    for (let r = 0; r < rows; r++) { tx[r] = S(offX[r], u); ty[r] = S(offY[r], u); }
+    return { x: h.x + S(tx, v), y: h.y + S(ty, v) };
+  };
+}
+
+// Output coords -> surface (u,v), by Newton iteration on surfaceFn. Good enough for dragging mask points.
+export function surfaceInverse(s) {
+  const f = surfaceFn(s);
+  return (x, y, guess = { u: 0.5, v: 0.5 }) => {
+    let u = guess.u, v = guess.v;
+    for (let i = 0; i < 20; i++) {
+      const p = f(u, v);
+      const ex = p.x - x, ey = p.y - y;
+      if (Math.abs(ex) + Math.abs(ey) < 1e-7) break;
+      const h = 1e-4;
+      const a = f(u + h, v), b = f(u, v + h);
+      const j00 = (a.x - p.x) / h, j01 = (b.x - p.x) / h, j10 = (a.y - p.y) / h, j11 = (b.y - p.y) / h;
+      const det = j00 * j11 - j01 * j10;
+      if (Math.abs(det) < 1e-12) break;
+      u -= (j11 * ex - j01 * ey) / det;
+      v -= (-j10 * ex + j00 * ey) / det;
+      u = clamp(u, -1, 2); v = clamp(v, -1, 2);
+    }
+    return { u, v };
   };
 }
 
@@ -197,7 +255,7 @@ const meshCache = new Map();
 // Dense triangle mesh for a surface (cached per surface while its shape is unchanged).
 export function evalMesh(s, density) {
   const n = clamp(density | 0, 4, 160);
-  const key = `${s.cols}x${s.rows}:${n}:` + s.pts.flat().map(p => p.x.toFixed(5) + ',' + p.y.toFixed(5)).join(';');
+  const key = `${s.cols}x${s.rows}:${n}:${s.interp}:` + s.pts.flat().map(p => p.x.toFixed(5) + ',' + p.y.toFixed(5)).join(';');
   const hit = meshCache.get(s.id);
   if (hit && hit.key === key) return hit.mesh;
   const f = surfaceFn(s);
@@ -324,6 +382,46 @@ export function applyOp(state, op) {
       const f = findSurface(state, op.surfaceId);
       if (!f) return false;
       f.surface.pts = gridPoints(f.surface.cols, f.surface.rows, 0.15);
+      return true;
+    }
+    case 'moveMaskPoint': {
+      const f = findSurface(state, op.surfaceId);
+      if (!f || f.surface.locked) return false;
+      const m = upgradeSurface(f.surface).mask;
+      if (op.i < 0 || op.i >= m.pts.length) return false;
+      m.pts[op.i] = { u: op.u, v: op.v };
+      return true;
+    }
+    case 'addMaskPoint': {
+      const f = findSurface(state, op.surfaceId);
+      if (!f) return false;
+      const m = upgradeSurface(f.surface).mask;
+      if (m.pts.length >= MAX_MASK_PTS) return false;
+      if (!m.pts.length) { m.pts = maskPreset('rect'); m.enabled = true; return true; }
+      const i = op.after != null ? clamp(op.after | 0, 0, m.pts.length - 1) : m.pts.length - 1;
+      const a = m.pts[i], b = m.pts[(i + 1) % m.pts.length];
+      m.pts.splice(i + 1, 0, { u: (a.u + b.u) / 2, v: (a.v + b.v) / 2 });
+      if (state.selection.surfaceId === f.surface.id) state.selection.point = { mask: i + 1 };
+      return true;
+    }
+    case 'removeMaskPoint': {
+      const f = findSurface(state, op.surfaceId);
+      if (!f) return false;
+      const m = upgradeSurface(f.surface).mask;
+      if (m.pts.length <= 3 || op.i < 0 || op.i >= m.pts.length) return false;
+      m.pts.splice(op.i, 1);
+      if (state.selection.surfaceId === f.surface.id) state.selection.point = null;
+      return true;
+    }
+    case 'setMask': {
+      const f = findSurface(state, op.surfaceId);
+      if (!f) return false;
+      const m = upgradeSurface(f.surface).mask;
+      if (op.preset) { m.pts = maskPreset(op.preset, op.arm); m.enabled = true; }
+      if (op.enabled != null) m.enabled = !!op.enabled;
+      if (op.feather != null) m.feather = clamp(op.feather, 0, 0.5);
+      if (op.invert != null) m.invert = !!op.invert;
+      if (state.selection.surfaceId === f.surface.id && state.selection.point?.mask != null) state.selection.point = null;
       return true;
     }
     case 'setFill': {

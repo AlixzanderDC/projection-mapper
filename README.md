@@ -59,6 +59,14 @@ The **Camera** tab uses your laptop's back camera (or any webcam) to find the ob
 
 The calibration is a camera→projector mapping fitted through the found dots, with a local correction so curved walls still land on their dots. Accuracy depends on the camera staying where it was during calibration; move it and calibrate again. Calibration is saved with the show.
 
+## Objects with straight edges: boxes, crosses, folded walls
+
+Set **Between points** to **Straight lines**. Then pulling an interior point makes a crease instead of a curve, so a 3×2 grid can wrap a box corner and a 3×3 can follow a folded wall.
+
+For shapes with holes or notches, use a **Mask**: a polygon in surface space that limits where light falls. Tick **Use mask** and pick a preset (**X cross**, **Plus**, **Diamond**, **Rectangle**) with an arm width, then drag the pink diamonds to fit. Click a mask point and press **Insert** (or **+**) to add one after it, **Delete** to remove it. **Mask soft edge** feathers the cutout; **Invert** lights everything except the shape.
+
+An X-shaped cross: one surface, corner-pinned to the four tips of the X (the cross's bounding box), mask preset **X cross**, arm width to match the beams, nudge the points. Show it as a Grid or Solid while fitting, then switch to the Source.
+
 ## Multiple projectors on one wall
 
 1. Add two projectors, open both windows, put each on its display, press **F** in each.
@@ -70,7 +78,7 @@ A single video decodes once per window, so two projectors showing one 4K file me
 
 ## Keys
 
-Control window: **Space** play/pause · **Arrows** nudge the selected point or surface by 1px (**Shift** = 10px) · **Tab** / **Shift+Tab** next/previous point · **G** cycle Source/Grid/Solid on the selected surface · **Esc** deselect.
+Control window: **Space** play/pause · **Arrows** nudge the selected point or surface by 1px (**Shift** = 10px) · **Tab** / **Shift+Tab** next/previous grid point · **G** cycle Source/Grid/Solid on the selected surface · **Insert** / **Delete** add or remove a mask point · **Esc** deselect.
 
 Projector window: **F** or double-click = fullscreen · **E** show/hide handles · **T** test pattern · same arrow/Tab editing as above. Hide the handles (E) before the show; the cursor hides with them.
 
@@ -97,7 +105,6 @@ Projector window: **F** or double-click = fullscreen · **E** show/hide handles 
 - The camera traces four corners (a quad). For a curved object, trace the quad, then raise the grid and pull the inner points on the camera image.
 - No DMX/OSC/MIDI triggering yet — the transport is play/pause/seek.
 - One cue (one set of sources) per show file. Make a show file per look and **Open…** between them.
-- Masks are rectangular with soft edges; freeform polygon masks are a natural next step.
 - Windows are placed by hand in Firefox. Chrome/Edge support **Detect displays** and will open a projector window on a chosen screen.
 
 ## License
