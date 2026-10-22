@@ -440,26 +440,6 @@ try {
   media.onMeta = (id, info) => { mediaInfo.set(id, { ...info, error: false }); rebuildLists(); };
   media.onError = id => { mediaInfo.set(id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); };
 
-// Cheap metadata probe (no decoding) for files the control window is not playing.
-const probed = new Set();
-function probeMedia() {
-  for (const m of state.media) {
-    if (m.missing || probed.has(m.id) || mediaInfo.has(m.id)) continue;
-    probed.add(m.id);
-    if (m.kind === 'video') {
-      const v = document.createElement('video');
-      v.preload = 'metadata'; v.muted = true;
-      v.addEventListener('loadedmetadata', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: false }); rebuildLists(); } v.removeAttribute('src'); v.load(); });
-      v.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
-      v.src = m.url;
-    } else {
-      const i = new Image();
-      i.addEventListener('load', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: i.naturalWidth, height: i.naturalHeight, error: false }); rebuildLists(); } });
-      i.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
-      i.src = m.url;
-    }
-  }
-}
 } catch (e) {
   toast(e.message, 60000);
 }
@@ -536,6 +516,27 @@ function frame() {
   }
   updateTransportUI();
   requestAnimationFrame(frame);
+}
+
+// Cheap metadata probe (no decoding) for files the control window is not playing.
+const probed = new Set();
+function probeMedia() {
+  for (const m of state.media) {
+    if (m.missing || probed.has(m.id) || mediaInfo.has(m.id)) continue;
+    probed.add(m.id);
+    if (m.kind === 'video') {
+      const v = document.createElement('video');
+      v.preload = 'metadata'; v.muted = true;
+      v.addEventListener('loadedmetadata', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: v.duration, width: v.videoWidth, height: v.videoHeight, error: false }); rebuildLists(); } v.removeAttribute('src'); v.load(); });
+      v.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
+      v.src = m.url;
+    } else {
+      const i = new Image();
+      i.addEventListener('load', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: i.naturalWidth, height: i.naturalHeight, error: false }); rebuildLists(); } });
+      i.addEventListener('error', () => { if (!mediaInfo.has(m.id)) { mediaInfo.set(m.id, { duration: 0, width: 0, height: 0, error: true }); rebuildLists(); } });
+      i.src = m.url;
+    }
+  }
 }
 
 // ---------------------------------------------------------------- transport
