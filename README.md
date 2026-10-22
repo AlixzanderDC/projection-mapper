@@ -117,7 +117,7 @@ Almost all of the memory is video decoders: one per file, per window that shows 
 
 - `js/core.js` — state model, homography + spline warp math, edit operations. Shared by both windows.
 - `js/render.js` — WebGL2 renderer (surfaces → offscreen texture → edge-blend/brightness pass) and the 2D overlay.
-- `js/media.js` — video/image elements, GPU uploads, and the shared-clock sync that keeps every window within a frame or two of each other.
+- `js/media.js` — video/image/audio elements, GPU uploads, and the shared-clock sync. Two hard-won rules live here: the video elements sit **underneath** the output canvas, full size and opaque, with the canvas created `alpha: true`, because Chrome (at least on Windows/Qualcomm) only decodes at full rate for a WebGL consumer when the compositor is drawing the element; and drift is corrected with small, rare `playbackRate` nudges, never by seeking, because a seek re-decodes from the last keyframe and a seek every few frames starves the decoder entirely. `test-video.html` and `test-visibility.html` are the pages that established this; keep them.
 - `js/editor.js` — mouse/keyboard editing of control points.
 - `js/control.js`, `js/output.js` — the control window and the projector window. They talk over a `BroadcastChannel`; the control window owns the state and autosaves it.
 - `serve.py` — static server with HTTP Range support (needed for seeking) and correct MIME types.
