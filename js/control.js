@@ -432,10 +432,11 @@ function outputInspector(o) {
   box.append(el('p', { class: 'hint', text: 'Lens offset is in the spec sheet: 1.0 (or "100%") means the bottom edge of the picture is level with the lens, 0 means the picture is centred on the lens, 0.5 is halfway.' }));
   const tm = C.templateMetrics(o);
   const lensLine = tm.lensBelowObjectIn >= 0 ? `Mount the lens ${tm.lensBelowObjectIn.toFixed(0)} in below the ${tp.name.toLowerCase()}'s centre` : `Mount the lens ${(-tm.lensBelowObjectIn).toFixed(0)} in above the ${tp.name.toLowerCase()}'s centre`;
-  box.append(el('p', { class: 'hint', text: `At ${tp.distanceFt} ft the image is ${tm.frameWidthIn.toFixed(0)} × ${tm.frameHeightIn.toFixed(0)} in (${tm.ppi.toFixed(1)} px per inch). The ${tp.name.toLowerCase()} spans ${Math.round(tm.wPx)} × ${Math.round(tm.hPx)} px, ${Math.round(tm.fraction * 100)}% of the width. ${lensLine}, square to the object, for it to land on the outline.` }));
+  box.append(el('p', { class: 'hint', text: `At ${tp.distanceFt} ft the image is ${tm.frameWidthIn.toFixed(0)} × ${tm.frameHeightIn.toFixed(0)} in (${tm.ppi.toFixed(1)} px per inch). The ${tp.name.toLowerCase()} spans ${Math.round(tm.wPx)} × ${Math.round(tm.hPx)} px, ${Math.round(tm.fraction * 100)}% of the width and ${Math.round(tm.hPx / o.height * 100)}% of the height. ${lensLine}, square to the object, for it to land on the outline.` }));
   box.append(el('div', { class: 'row wrap' },
-    btn('Distance for 70% of width', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.7) * 10) / 10; commit(true); }),
-    btn('Distance for 90% of width', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.9) * 10) / 10; commit(true); })));
+    btn('Distance to fill 70%', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.7) * 10) / 10; commit(true); }),
+    btn('Distance to fill 90%', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.9) * 10) / 10; commit(true); })));
+  box.append(el('p', { class: 'hint', text: 'Fill is measured on whichever side of the frame the object hits first: a sphere on a 16:9 projector is limited by the height.' }));
   box.append(slider('Position X', tp.cx, 0, 1, 0.001, v => { tp.cx = v; commit(); }, v => v.toFixed(3)));
   box.append(slider('Position Y', tp.cy, 0, 1, 0.001, v => { tp.cy = v; commit(); }, v => v.toFixed(3)));
   box.append(el('div', { class: 'row' }, btn('Make surface from template', () => { C.applyOp(state, { type: 'surfaceFromTemplate', outputId: o.id }); commit(true); }, 'primary')));

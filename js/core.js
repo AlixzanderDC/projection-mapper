@@ -76,11 +76,13 @@ export function templateMetrics(o) {
   const lensBelowObjectIn = centreAboveLensIn + objectAboveCentreIn;
   return { frameWidthIn, frameHeightIn, ppi, wPx: t.widthIn * ppi, hPx: t.heightIn * ppi, fraction: (t.widthIn * ppi) / o.width, lensBelowObjectIn };
 }
-// Distance (ft) at which the template spans `fraction` of the frame width.
+// Distance (ft) at which the template spans `fraction` of the frame on its limiting side
+// (a 60 in sphere on a 16:9 projector is limited by the frame height, not its width).
 export function templateDistanceFor(o, fraction) {
-  const t = o.template;
-  const frameWidthIn = t.widthIn / clamp(fraction, 0.05, 1);
-  return (frameWidthIn * t.throwRatio) / 12;
+  const t = o.template, f = clamp(fraction, 0.05, 1);
+  const byWidth = t.widthIn / f;                               // frame width needed
+  const byHeight = (t.heightIn / f) * (o.width / o.height);    // frame width implied by the height constraint
+  return (Math.max(byWidth, byHeight) * t.throwRatio) / 12;
 }
 
 export function makeOutput(index) {
