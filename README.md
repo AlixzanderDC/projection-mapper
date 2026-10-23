@@ -153,3 +153,5 @@ MIT — see `LICENSE`.
 ## Procedural content: `content/`
 
 `content/vines-roses.html` is a time-driven canvas animation made for a mapped X-cross and the wall behind it (shapes taken from the exported Guide SVG). Open it in a browser to preview and scrub; **Record WebM** saves one loop as a video. `content/render-frames.js` renders every frame headlessly and encodes an MP4 with ffmpeg (needs Node with Playwright, Chrome and ffmpeg). Add `?nobg=1` for the cross alone.
+
+`content/crucible-reveal.html` is a 14 s logo reveal (logo PNG and theme MP3 live in `media/`, not in git). `content/arkham-banner.html` is a 2:1 equirectangular strip for a **360° ball** surface: an "Arkham Asylum" title, a status feed ("CRYO WING STABILITY AT 12%", …) and a warning tape travel round the ball in whole laps, so the 192 s video loops and wraps without a seam. Edit the `FEED` list at the top of the file to change the messages; render with `node content/render-frames.js content/arkham-banner.html media/arkham_banner_2048x1024.mp4` (set `PLAYWRIGHT_PATH` if Playwright is not installed next to the script).
