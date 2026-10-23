@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arkham Banner (360° strip)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Share+Tech+Mono&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: #111; color: #ccc; font: 13px system-ui, sans-serif; }
+  .bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #1b1d22; }
+  canvas { display: block; max-width: 100vw; max-height: calc(100vh - 44px); background: #000; margin: 0 auto; }
+  button { background: #23262d; color: #eee; border: 1px solid #2f333b; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  input[type=range] { width: 300px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <strong>Arkham Banner</strong>
+  <button id="play">Pause</button>
+  <input id="scrub" type="range" min="0" max="1" step="0.001" value="0">
+  <span id="time">0.0 s</span>
+  <span id="status">2:1 equirectangular strip for a 360° ball surface: the title and status feed circle the moon.</span>
+</div>
+<canvas id="c" width="2048" height="1024"></canvas>
+<script>
+// A 2:1 equirectangular strip for the mapper's 360° ball surface. Everything moves in whole laps per
+// loop and tiles the strip's width exactly, so the video loops and wraps round the ball without a seam.
+// Deterministic in t: open with ?frame=1 and call renderAt(t) to render any frame.
+const W = 2048, H = 1024, FPS = 30;
+const LAP_S = 24;                       // seconds for the status feed to travel once round the ball
+const FEED_LAP_COUNT = 8;              // the whole feed is spread over this many laps (it is far longer than one)
+const DURATION = LAP_S * FEED_LAP_COUNT; // 192 s: every band completes whole laps, so the loop is seamless
+const PARAMS = new URLSearchParams(location.search);
+
+// ---- content (edit freely) ------------------------------------------------------------------------
+const TITLE = 'ARKHAM ASYLUM';
+const SUBTITLE = 'ELIZABETH ARKHAM ASYLUM FOR THE CRIMINALLY INSANE  ·  GOTHAM CITY';
+const FEED = [
+  { text: 'CRYO WING STABILITY AT 12%', alert: true },
+  { text: 'HARLEY QUINN SPOTTED IN WARD J', alert: true },
+  { text: 'INTENSIVE TREATMENT: LOCKDOWN IN EFFECT' },
+  { text: 'PATIENT 0801 UNACCOUNTED FOR — CELL BLOCK C', alert: true },
+  { text: 'BOTANICAL GARDENS QUARANTINED — AIRBORNE TOXIN' },
+  { text: 'VISITING HOURS SUSPENDED UNTIL FURTHER NOTICE' },
+  { text: 'MEDICAL WING: FEAR TOXIN EXPOSURE — 3 STAFF', alert: true },
+  { text: 'ALL PERSONNEL REPORT TO SECURITY CHECKPOINT' },
+  { text: 'DR. QUINZEL BADGE ACCESS REVOKED' },
+  { text: 'GENERATOR OUTPUT 47% — BACKUP POWER ENGAGED' },
+];
+const LOWER = 'RESTRICTED AREA  ◆  SECURITY LEVEL: CRITICAL  ◆  NO UNAUTHORISED ENTRY  ◆  ';
+
+// Bands, by latitude on the ball (positive = above the equator). v = 0.5 − lat/180.
+const yAt = latDeg => (0.5 - latDeg / 180) * H;
+const TITLE_Y = yAt(24), TITLE_SIZE = 190;        // two copies round the ball, fitted to half a lap each
+const FEED_Y = yAt(-11), FEED_SIZE = 58;          // one lap per LAP_S, items spread evenly over FEED_LAP_COUNT laps
+const LOWER_Y = yAt(-31), LOWER_SIZE = 34;        // slow, the other way
+const TITLE_LAPS = FEED_LAP_COUNT / 2, FEED_LAPS = FEED_LAP_COUNT, LOWER_LAPS = -FEED_LAP_COUNT / 2;
+const TITLE_MAX_W = 880;                          // title width, leaving room between the two copies
+
+const AMBER = '#ffb000', RED = '#ff3b3b', BONE = '#efe6d2';
+// ----------------------------------------------------------------------------------------------------
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const ease = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+const hash = n => { let x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const mod = (a, n) => ((a % n) + n) % n;
+
+// Draws `once(x0)` at every x0 = k·period − offset that can touch the strip. `period` must divide W
+// (W, W/2, …) so the content meets itself where the strip's edges join behind the ball.
+function tile(period, offset, once) {
+  for (let x0 = -mod(offset, period) - period; x0 < W + period; x0 += period) once(x0);
+}
+
+let feedLayout = null;   // item positions within one lap, laid out once the fonts are in
+function layoutFeed() {
+  ctx.font = `${FEED_SIZE}px "Share Tech Mono", monospace`;
+  const sep = '   ◆   ';
+  const widths = FEED.map(f => ctx.measureText(f.text).width);
+  const sepW = ctx.measureText(sep).width;
+  const total = widths.reduce((a, b) => a + b, 0) + sepW * FEED.length;
+  const lap = W * FEED_LAP_COUNT;                        // the feed repeats every FEED_LAP_COUNT laps (a multiple of W, so the wrap is seamless)
+  if (total > lap) console.warn('feed is longer than its laps; raise FEED_LAP_COUNT or shorten items', total, lap);
+  const extra = Math.max(0, lap - total) / FEED.length;  // spread any spare room evenly
+  let x = 0; const items = [];
+  FEED.forEach((f, i) => { items.push({ x, w: widths[i], f }); x += widths[i] + sepW + extra; });
+  feedLayout = { items, sep, sepW, extra, lap };
+}
+
+function hazardStripes(y, h, offset) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, y, W, h); ctx.clip();
+  ctx.fillStyle = '#2a2000'; ctx.fillRect(0, y, W, h);
+  ctx.fillStyle = '#9a7a00';
+  const p = 64;
+  for (let x = -p * 2 - mod(offset, p); x < W + p; x += p) {
+    ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + h, y); ctx.lineTo(x + h + p / 2, y); ctx.lineTo(x + p / 2, y + h); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function renderAt(t) {
+  t = mod(t, DURATION);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  if (!feedLayout) layoutFeed();
+  const lap = t / DURATION;              // 0..1 through the loop
+  const flick = 0.85 + 0.15 * hash(Math.floor(t * 24));             // feed flicker, 24 steps a second
+  const blink = Math.sin(t * Math.PI * 2 * 1.2) > -0.2 ? 1 : 0.35;  // alert blink
+
+  // --- title band: ARKHAM ASYLUM, blackletter, bone white, two copies round the ball
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  tile(W / 2, lap * TITLE_LAPS * W, x0 => {
+    const cx = x0 + W / 4;
+    ctx.font = `${TITLE_SIZE}px "Pirata One", serif`;
+    const tw = ctx.measureText(TITLE).width;
+    if (tw > TITLE_MAX_W) ctx.font = `${Math.floor(TITLE_SIZE * TITLE_MAX_W / tw)}px "Pirata One", serif`;
+    ctx.shadowColor = 'rgba(255, 190, 90, 0.55)'; ctx.shadowBlur = 40;
+    ctx.fillStyle = BONE; ctx.fillText(TITLE, cx, TITLE_Y);
+    ctx.shadowBlur = 0;
+    // rules above and below, and the long-form name
+    ctx.fillStyle = 'rgba(239, 230, 210, 0.7)';
+    ctx.fillRect(cx - 440, TITLE_Y - TITLE_SIZE * 0.56, 880, 3);
+    ctx.fillRect(cx - 440, TITLE_Y + TITLE_SIZE * 0.5, 880, 3);
+    ctx.font = `500 ${TITLE_SIZE * 0.17}px Oswald, sans-serif`;
+    ctx.fillStyle = 'rgba(239, 230, 210, 0.8)';
+    ctx.fillText(SUBTITLE, cx, TITLE_Y + TITLE_SIZE * 0.5 + 34);
+  });
+
+  // --- status feed: amber monospace, alerts in red and blinking
+  ctx.textAlign = 'left';
+  const feedOff = lap * FEED_LAPS * W;
+  ctx.fillStyle = 'rgba(255, 176, 0, 0.12)'; ctx.fillRect(0, FEED_Y - FEED_SIZE * 0.7, W, FEED_SIZE * 1.4);
+  ctx.fillStyle = 'rgba(255, 176, 0, 0.5)'; ctx.fillRect(0, FEED_Y - FEED_SIZE * 0.7, W, 2); ctx.fillRect(0, FEED_Y + FEED_SIZE * 0.7 - 2, W, 2);
+  ctx.font = `${FEED_SIZE}px "Share Tech Mono", monospace`;
+  tile(feedLayout.lap, feedOff, x0 => {
+    for (const it of feedLayout.items) {
+      const x = x0 + it.x;
+      if (x + it.w < -50 || x > W + 50) continue;
+      const alert = it.f.alert;
+      ctx.globalAlpha = (alert ? blink : 1) * flick;
+      ctx.shadowColor = alert ? 'rgba(255,60,60,0.8)' : 'rgba(255,176,0,0.7)'; ctx.shadowBlur = 18;
+      ctx.fillStyle = alert ? RED : AMBER;
+      ctx.fillText((alert ? '⚠ ' : '» ') + it.f.text, x, FEED_Y);
+      ctx.shadowBlur = 0; ctx.globalAlpha = flick;
+      ctx.fillStyle = 'rgba(255,176,0,0.55)';
+      ctx.fillText(feedLayout.sep, x + it.w + (alert ? ctx.measureText('⚠ ').width : ctx.measureText('» ').width), FEED_Y);
+    }
+  });
+  ctx.globalAlpha = 1;
+
+  // --- lower band: hazard stripes with a slow counter-rotating warning line
+  const lowerOff = lap * LOWER_LAPS * W;
+  hazardStripes(LOWER_Y - LOWER_SIZE * 1.1, 10, lowerOff * 0.5);
+  hazardStripes(LOWER_Y + LOWER_SIZE * 0.9, 10, lowerOff * 0.5);
+  ctx.font = `700 ${LOWER_SIZE}px Oswald, sans-serif`;
+  ctx.fillStyle = '#d9b64a';
+  const lowerW = ctx.measureText(LOWER).width;
+  const copies = Math.max(1, Math.round(W / lowerW));                // whole copies per lap so the wrap is seamless
+  const period = W / copies;
+  const scaleX = period / lowerW;
+  tile(period, lowerOff, x0 => {
+    ctx.save(); ctx.translate(x0, LOWER_Y); ctx.scale(scaleX, 1); ctx.fillText(LOWER, 0, 0); ctx.restore();
+  });
+
+  // --- scanlines over the lit bands (they curve on the ball, which sells the "security feed" look)
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  for (let y = Math.floor(TITLE_Y - TITLE_SIZE); y < LOWER_Y + LOWER_SIZE * 1.5; y += 4) ctx.fillRect(0, y, W, 1);
+}
+
+window.renderAt = renderAt; window.DURATION = DURATION; window.FPS = FPS;
+let fontsIn = false;
+document.fonts.load(`${TITLE_SIZE}px "Pirata One"`).then(() => document.fonts.load(`${FEED_SIZE}px "Share Tech Mono"`)).then(() => document.fonts.load('700 30px Oswald')).then(() => { fontsIn = true; feedLayout = null; }).catch(() => { fontsIn = true; });
+window.assetsReady = () => fontsIn;
+
+if (!PARAMS.has('frame')) {
+  let playing = true, t0 = performance.now(), tAt = 0;
+  const scrub = document.getElementById('scrub'), timeEl = document.getElementById('time');
+  function loop() {
+    if (playing) tAt = ((performance.now() - t0) / 1000) % DURATION;
+    renderAt(tAt); scrub.value = tAt / DURATION; timeEl.textContent = tAt.toFixed(1) + ' s';
+    requestAnimationFrame(loop);
+  }
+  document.getElementById('play').onclick = e => { playing = !playing; if (playing) t0 = performance.now() - tAt * 1000; e.target.textContent = playing ? 'Pause' : 'Play'; };
+  scrub.oninput = () => { playing = false; document.getElementById('play').textContent = 'Play'; tAt = scrub.value * DURATION; };
+  loop();
+}
+</script>
+</body>
+</html>
