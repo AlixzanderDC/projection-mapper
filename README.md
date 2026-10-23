@@ -84,6 +84,18 @@ Make the video at that size, put it in `media/`, add a surface, press **Full fra
 
 If you know the real size of what you'll light (a 60-inch inflatable moon, say), the projector can be placed before the object is even there. In the projector inspector, **Setup template**: pick the object (or enter a custom size), the lens's throw ratio from its spec sheet (distance ÷ image width), and the distance. The projector shows a dashed outline of the object at its true pixel size, with the numbers (image size in inches, pixels per inch, percentage of the frame). The **Distance to fill 70 %** button tells you where to stand the projector so the object fills most of the frame (measured on whichever side it hits first) with room for edge content. **Lens offset** (from the spec sheet: 1.0 means the picture's bottom edge is level with the lens) turns into a mounting height: the readout says how far below the object's centre the lens should sit so the object lands on the outline with the projector square to it, no keystone. Hang the object inside the outline, then **Make surface from template** turns the outline into a mapped surface (circular mask for a sphere) to fine-tune.
 
+## All the way round a ball: several projectors, one 360° strip
+
+A **360° ball** surface treats its four corners as the bounding box of a sphere (the moon). From the projector's throw ratio and lens offset (the Setup template) the mapper knows the ray behind every pixel, so each pixel is traced onto the ball and finds its longitude and latitude. The source is then a **2:1 equirectangular strip**, the same layout as a 360° video: its middle lands on the point of the ball facing projector 1, its left and right edges meet behind the ball, the top row is the north pole. Anything moving right in the strip travels round the ball to the right as seen from projector 1.
+
+1. On each projector, set the Setup template's throw ratio and lens offset, hang the moon, and **Make 360° ball surface**. Drag the corners until the dashed circle sits on the ball.
+2. Give each ball surface the same source and set **Position round the ball**: 0 for projector 1, then how far round each other projector stands (walk right round the ball from behind projector 1: a third of the way is 120°, two thirds 240°). Height above or below the ball is worked out from where the ball sits in the frame, assuming the projector is level; **Projector tilt** corrects a unit that is pitched up or down.
+3. Switch all of them to **Show → Grid**: the longitude/latitude lines must coincide on the ball. Nudge azimuths and corners until they do.
+
+Where projectors overlap, each one's share follows how squarely it hits the surface, so the seams blend on their own (no edge-blend widths to set); **Overlap sharpness** hands over faster or slower and **Blend gamma** should match the projectors. A ball surface can sit on the same projector as an ordinary flat surface: tick **Add light** on the ball layer so its black stays see-through and only the content lights the ball on top of the flat picture. `test-sphere.html` shows three such projectors sharing one labelled strip.
+
+The strip is decoded once per projector window, so keep it modest: 2048×1024 reads well on a 60-inch ball from 1080p projectors.
+
 ## Multiple projectors on one wall
 
 1. Add two projectors, open both windows, put each on its display, press **F** in each.
@@ -128,6 +140,7 @@ Almost all of the memory is video decoders: one per file, per window that shows 
 
 ## Limits and ideas for later
 
+- Ball surfaces assume the projector is level (or tilted only up/down, see Projector tilt) and the ball is a true sphere.
 - The camera traces four corners (a quad). For a curved object, trace the quad, then raise the grid and pull the inner points on the camera image.
 - No DMX/OSC/MIDI triggering yet — the transport is play/pause/seek.
 - One cue (one set of sources) per show file. Make a show file per look and **Open…** between them.

@@ -125,7 +125,14 @@ export function makeSurface(index, mediaId = null) {
     cutExpand: 0,                         // grow the hole by this many output pixels
     visible: true,
     locked: false,
+    kind: 'flat',                         // 'flat' (warped quad) | 'sphere' (the quad bounds a ball; content is a 360° strip)
+    sphere: defaultSphere(),
+    additive: false,                      // add light instead of covering what is behind (black stays transparent)
   };
+}
+
+export function defaultSphere() {
+  return { az: 0, pitch: 0, blendPow: 2, blendGamma: 2.2 };
 }
 
 export const FILL_MODES = ['source', 'grid', 'color'];
@@ -140,7 +147,74 @@ export function upgradeSurface(s) {
   if (!s.mask || !Array.isArray(s.mask.pts)) s.mask = { enabled: false, pts: [], feather: 0, invert: false };
   if (!Array.isArray(s.cutouts)) s.cutouts = [];
   if (!(s.cutExpand >= 0)) s.cutExpand = 0;
+  if (s.kind !== 'sphere') s.kind = 'flat';
+  s.sphere = Object.assign(defaultSphere(), s.sphere || {});
+  s.additive = !!s.additive;
   return s;
+}
+
+// ---------------------------------------------------------------- sphere surfaces
+// A sphere surface treats its quad as the bounding box of a ball seen by the projector (the moon).
+// From the projector's throw ratio and lens offset we know the ray behind every pixel, so each pixel
+// is traced onto the ball and finds its longitude/latitude; the source is a 2:1 equirectangular
+// strip (like a 360° video) wrapped round the ball. Several projectors round the ball share one
+// strip and blend automatically where they overlap, weighted by how squarely each one hits the surface.
+
+// Focal length and principal point of the projector in output pixels (y down).
+export function projectorIntrinsics(o) {
+  const t = o.template || defaultTemplate();
+  const f = Math.max(0.1, t.throwRatio || 1.3) * o.width;
+  const off = t.lensOffset ?? 1;
+  return { f, ppx: o.width / 2, ppy: o.height / 2 + off * o.height / 2 };
+}
+
+const v3 = {
+  norm(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+  dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; },
+  cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; },
+  scale(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; },
+};
+
+// Ball centre (camera coords, radius 1), distance, and camera→world rotation for one sphere surface.
+export function sphereParams(o, s) {
+  const { f, ppx, ppy } = projectorIntrinsics(o);
+  const xs = s.pts.flat().map(p => p.x * o.width), ys = s.pts.flat().map(p => p.y * o.height);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const r = Math.max(1, ((Math.max(...xs) - Math.min(...xs)) + (Math.max(...ys) - Math.min(...ys))) / 4);
+  const ray = (x, y) => v3.norm([x - ppx, ppy - y, f]);        // camera: x right, y up, z forward
+  const c = ray(cx, cy);
+  const dl = ray(cx - r, cy), dr = ray(cx + r, cy);
+  const alpha = Math.acos(clamp(v3.dot(dl, dr), -1, 1)) / 2;  // angular radius of the ball
+  const L = 1 / Math.max(1e-3, Math.sin(alpha));                // distance to its centre in radii
+  const sp = s.sphere || defaultSphere();
+  const pitch = (sp.pitch || 0) * Math.PI / 180;
+  const Yc = [0, Math.cos(pitch), Math.sin(pitch)];             // world up in camera coords (projector tilted up by `pitch`)
+  // Camera-space frame aimed at the ball, and the same frame in world space (Y up, ball at the origin).
+  const fC = c, rC = v3.norm(v3.cross(Yc, fC)), uC = v3.cross(fC, rC);
+  const el = -Math.asin(clamp(v3.dot(c, Yc), -1, 1));          // projector elevation above the ball's centre
+  const az = (sp.az || 0) * Math.PI / 180;
+  // Azimuth grows the way a viewer behind projector 1 walks right round the ball.
+  const dirP = [-Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)];
+  const fW = v3.scale(dirP, -1), rW = v3.norm(v3.cross([0, 1, 0], fW)), uW = v3.cross(fW, rW);
+  // R = [rW uW fW] · [rC uC fC]^T, column-major for GLSL.
+  const R = new Float32Array(9);
+  for (let col = 0; col < 3; col++) for (let row = 0; row < 3; row++) {
+    R[col * 3 + row] = rW[row] * rC[col] + uW[row] * uC[col] + fW[row] * fC[col];
+  }
+  return { f, ppx, ppy, cx, cy, r, centre: v3.scale(c, L), L, dirP, pos: v3.scale(dirP, L), rot: R, el };
+}
+
+// Every visible sphere surface (across all outputs) showing the same source as `s`, with their
+// projector positions in world space; `self` is the index of `s` in that list.
+export function sphereGroup(state, s) {
+  const list = [];
+  let self = 0;
+  for (const o of state.outputs) for (const x of o.surfaces) {
+    if (x.kind !== 'sphere' || !x.visible || (x.mediaId || null) !== (s.mediaId || null)) continue;
+    if (x === s) self = list.length;
+    list.push(sphereParams(o, x).pos);
+  }
+  return { positions: list.slice(0, 8), self: Math.min(self, 7) };
 }
 
 // Mask presets in surface space. `a` is the arm width as a fraction of the surface (0–0.5).
@@ -413,6 +487,7 @@ export function applyOp(state, op) {
       return true;
     }
     case 'setGrid': {
+      if (findSurface(state, op.surfaceId)?.surface.kind === 'sphere') return false;
       const f = findSurface(state, op.surfaceId);
       if (!f) return false;
       resampleGrid(f.surface, op.cols, op.rows);
@@ -435,7 +510,8 @@ export function applyOp(state, op) {
       const s = makeSurface(o.surfaces.length + 1, null);
       s.name = t.name || 'Template';
       s.pts = [[{ x: t.cx - hw, y: t.cy - hh }, { x: t.cx + hw, y: t.cy - hh }], [{ x: t.cx - hw, y: t.cy + hh }, { x: t.cx + hw, y: t.cy + hh }]];
-      if (t.shape === 'circle') s.mask = { enabled: true, pts: maskPreset('circle'), feather: 0.02, invert: false };
+      if (op.kind === 'sphere') { s.kind = 'sphere'; s.name = (t.name || 'Ball') + ' 360'; }
+      else if (t.shape === 'circle') s.mask = { enabled: true, pts: maskPreset('circle'), feather: 0.02, invert: false };
       s.fill = 'grid';
       o.surfaces.push(s);
       state.selection = { outputId: o.id, surfaceId: s.id, point: null };

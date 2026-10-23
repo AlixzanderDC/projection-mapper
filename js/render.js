@@ -1,5 +1,5 @@
 // render.js — WebGL2 renderer for one output, plus the 2D handle/test-pattern overlay.
-import { evalMesh, outline, surfaceFn, templateMetrics } from './core.js';
+import { evalMesh, outline, surfaceFn, templateMetrics, sphereParams, sphereGroup } from './core.js';
 
 const SURF_VS = `#version 300 es
 layout(location=0) in vec2 aPos;
@@ -29,6 +29,16 @@ uniform sampler2D uCut;  // shapes of other surfaces to punch out (screen space)
 uniform int uHasCut;
 uniform float uCutExpand; // px
 uniform vec2 uRes;
+// Sphere surfaces: trace each pixel onto a unit ball and look up longitude/latitude in a 2:1 strip.
+uniform int uSphere;
+uniform vec3 uRay;        // focal length, principal point x, principal point y (canvas pixels, y up)
+uniform vec3 uCen;        // ball centre in camera coords (radius 1)
+uniform mat3 uRot;        // camera -> world (Y up, ball at the origin)
+uniform vec3 uProj[8];    // positions of every projector lighting this ball with the same source
+uniform int uNProj;
+uniform int uSelf;
+uniform float uBlendPow;
+uniform float uBlendGamma;
 out vec4 outColor;
 float cutAt(vec2 uv) { return texture(uCut, uv).r; }
 float cutAmount() {
@@ -66,36 +76,58 @@ float maskAlpha(vec2 p) {
 }
 void main() {
   vec3 rgb; float a = 1.0;
-  if (uMaskN >= 3) { a = maskAlpha(vUV); if (a <= 0.0) discard; }
+  vec2 uv = vUV;
+  if (uSphere == 1) {
+    vec3 d = normalize(vec3(gl_FragCoord.x - uRay.y, gl_FragCoord.y - uRay.z, uRay.x));
+    float b = dot(d, uCen);
+    float disc = b * b - (dot(uCen, uCen) - 1.0);
+    if (disc < 0.0) discard;                              // misses the ball
+    vec3 n = d * (b - sqrt(disc)) - uCen;                 // unit normal at the near hit
+    vec3 nw = uRot * n;
+    uv = vec2(fract(0.5 - atan(nw.x, nw.z) / 6.2831853), 0.5 - asin(clamp(nw.y, -1.0, 1.0)) / 3.14159265);
+    if (uNProj > 1) {
+      float sum = 0.0, mine = 0.0;
+      for (int i = 0; i < 8; i++) {
+        if (i >= uNProj) break;
+        float w = pow(max(0.0, dot(nw, normalize(uProj[i] - nw))), uBlendPow);
+        sum += w;
+        if (i == uSelf) mine = w;
+      }
+      a = sum > 0.0 ? pow(mine / sum, 1.0 / uBlendGamma) : 0.0;   // share of the light, in projector gamma
+      if (a <= 0.001) discard;
+    }
+  }
+  if (uMaskN >= 3) { a *= maskAlpha(uv); if (a <= 0.0) discard; }
   if (uHasCut == 1) { a *= 1.0 - cutAmount(); if (a <= 0.0) discard; }
   if (uMode == 2) {
     rgb = uColor;
   } else if (uMode == 1) {
-    vec2 g = vUV * uGridDiv;
+    vec2 g = uv * uGridDiv;
     vec2 w = fwidth(g) * 1.5;                       // ~1.5px lines whatever the warp
     vec2 f = abs(fract(g) - 0.5);
     vec2 l = step(0.5 - w, f);
-    vec2 edge = step(vUV, w / uGridDiv * 2.0) + step(1.0 - w / uGridDiv * 2.0, vUV);
+    vec2 edge = step(uv, w / uGridDiv * 2.0) + step(1.0 - w / uGridDiv * 2.0, uv);
     float line = max(max(l.x, l.y), max(edge.x, edge.y));
-    vec2 cw = fwidth(vUV) * 2.0;
-    float cross = max(step(abs(vUV.x - 0.5), cw.x), step(abs(vUV.y - 0.5), cw.y));
+    vec2 cw = fwidth(uv) * 2.0;
+    float cross = max(step(abs(uv.x - 0.5), cw.x), step(abs(uv.y - 0.5), cw.y));
     rgb = uColor * max(line, cross);
     a = max(line, cross) > 0.0 ? 1.0 : 0.25;         // faint fill so the surface reads as a shape
   } else if (uHasTex == 1) {
-    vec4 c = texture(uTex, uRect.xy + vUV * uRect.zw);
+    vec4 c = texture(uTex, uRect.xy + uv * uRect.zw);
     rgb = c.rgb; a = c.a;
   } else {
-    float g = mod(floor(vUV.x * 8.0) + floor(vUV.y * 8.0), 2.0);
-    rgb = mix(vec3(0.18), vec3(0.42), g) * vec3(0.7 + 0.3 * vUV.x, 0.7 + 0.3 * vUV.y, 1.0);
+    float g = mod(floor(uv.x * 8.0) + floor(uv.y * 8.0), 2.0);
+    rgb = mix(vec3(0.18), vec3(0.42), g) * vec3(0.7 + 0.3 * uv.x, 0.7 + 0.3 * uv.y, 1.0);
   }
-  if (uFeather.x > 0.0) a *= smoothstep(0.0, uFeather.x, vUV.x);
-  if (uFeather.y > 0.0) a *= smoothstep(0.0, uFeather.y, 1.0 - vUV.x);
-  if (uFeather.z > 0.0) a *= smoothstep(0.0, uFeather.z, vUV.y);
-  if (uFeather.w > 0.0) a *= smoothstep(0.0, uFeather.w, 1.0 - vUV.y);
+  if (uFeather.x > 0.0) a *= smoothstep(0.0, uFeather.x, uv.x);
+  if (uFeather.y > 0.0) a *= smoothstep(0.0, uFeather.y, 1.0 - uv.x);
+  if (uFeather.z > 0.0) a *= smoothstep(0.0, uFeather.z, uv.y);
+  if (uFeather.w > 0.0) a *= smoothstep(0.0, uFeather.w, 1.0 - uv.y);
   outColor = vec4(rgb, a * uOpacity);
 }`;
 
 const MASK_BUF = new Float32Array(64);
+const PROJ_BUF = new Float32Array(24);
 
 const COMP_VS = `#version 300 es
 out vec2 vUV;
@@ -170,7 +202,8 @@ export class Renderer {
     this.lost = false;
     canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.lost = true; });
     canvas.addEventListener('webglcontextrestored', () => { this.lost = true; }); // objects are gone; the page reloads itself
-    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv', 'uMaskN', 'uMask', 'uMaskFeather', 'uMaskInvert', 'uCut', 'uHasCut', 'uCutExpand', 'uRes']);
+    this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv', 'uMaskN', 'uMask', 'uMaskFeather', 'uMaskInvert', 'uCut', 'uHasCut', 'uCutExpand', 'uRes',
+      'uSphere', 'uRay', 'uCen', 'uRot', 'uProj', 'uNProj', 'uSelf', 'uBlendPow', 'uBlendGamma']);
     this.comp = program(gl, COMP_VS, COMP_FS, ['uScene', 'uRes', 'uBlendW', 'uBlendG', 'uBrightness', 'uGamma', 'uGain']);
 
     this.vao = gl.createVertexArray();
@@ -213,7 +246,7 @@ export class Renderer {
   }
 
   // Draws one surface with the surface program bound. `cutTex` = screen-space cut mask or null.
-  drawSurface(s, state, media, W, H, cutTex, cutExpand, asWhite) {
+  drawSurface(output, s, state, media, W, H, cutTex, cutExpand, asWhite) {
     const gl = this.gl, u = this.surf.u;
     const mesh = evalMesh(s, state.meshDensity);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
@@ -257,7 +290,25 @@ export class Renderer {
     gl.uniform1i(u.uHasCut, cutTex ? 1 : 0);
     gl.uniform1f(u.uCutExpand, cutExpand || 0);
     gl.uniform2f(u.uRes, W, H);
+    if (s.kind === 'sphere') {
+      const sp = sphereParams(output, s), sx = W / output.width, sy = H / output.height;
+      gl.uniform1i(u.uSphere, 1);
+      gl.uniform3f(u.uRay, sp.f * sx, sp.ppx * sx, H - sp.ppy * sy);
+      gl.uniform3f(u.uCen, sp.centre[0], sp.centre[1], sp.centre[2]);
+      gl.uniformMatrix3fv(u.uRot, false, sp.rot);
+      const g = asWhite ? { positions: [], self: 0 } : sphereGroup(state, s);
+      for (let i = 0; i < g.positions.length; i++) { PROJ_BUF[i * 3] = g.positions[i][0]; PROJ_BUF[i * 3 + 1] = g.positions[i][1]; PROJ_BUF[i * 3 + 2] = g.positions[i][2]; }
+      gl.uniform3fv(u.uProj, PROJ_BUF);
+      gl.uniform1i(u.uNProj, g.positions.length);
+      gl.uniform1i(u.uSelf, g.self);
+      gl.uniform1f(u.uBlendPow, s.sphere?.blendPow ?? 2);
+      gl.uniform1f(u.uBlendGamma, s.sphere?.blendGamma ?? 2.2);
+    } else {
+      gl.uniform1i(u.uSphere, 0);
+    }
+    if (s.additive && !asWhite) gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     gl.drawElements(gl.TRIANGLES, mesh.idx.length, gl.UNSIGNED_INT, 0);
+    if (s.additive && !asWhite) gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
   // media: object with texture(mediaId) -> {tex} | null, or null for placeholders only.
@@ -291,11 +342,11 @@ export class Renderer {
         gl.clear(gl.COLOR_BUFFER_BIT);
         gl.activeTexture(gl.TEXTURE1);
         gl.bindTexture(gl.TEXTURE_2D, null);
-        for (const c of cuts) this.drawSurface(c, state, null, W, H, null, 0, true);
+        for (const c of cuts) this.drawSurface(output, c, state, null, W, H, null, 0, true);
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
         cutTex = this.cutTex;
       }
-      this.drawSurface(s, state, media, W, H, cutTex, s.cutExpand, false);
+      this.drawSurface(output, s, state, media, W, H, cutTex, s.cutExpand, false);
     }
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, null);
@@ -359,6 +410,18 @@ export function drawOverlay(ctx, output, state, W, H, opts = {}) {
     ring.forEach((p, i) => (i ? ctx.lineTo(p.x * W, p.y * H) : ctx.moveTo(p.x * W, p.y * H)));
     ctx.closePath();
     ctx.stroke();
+    if (s.kind === 'sphere') {
+      // the ball the quad bounds, plus its equator and the meridian facing this projector
+      const sp = sphereParams(output, s), kx = W / output.width, ky = H / output.height;
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.ellipse(sp.cx * kx, sp.cy * ky, sp.r * kx, sp.r * ky, 0, 0, Math.PI * 2);
+      ctx.moveTo((sp.cx - sp.r) * kx, sp.cy * ky); ctx.lineTo((sp.cx + sp.r) * kx, sp.cy * ky);
+      ctx.moveTo(sp.cx * kx, (sp.cy - sp.r) * ky); ctx.lineTo(sp.cx * kx, (sp.cy + sp.r) * ky);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // label
     const l = s.pts[0][0];

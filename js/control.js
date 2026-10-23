@@ -439,8 +439,10 @@ function outputInspector(o) {
   box.append(el('p', { class: 'hint', text: 'Fill is measured on whichever side of the frame the object hits first: a sphere on a 16:9 projector is limited by the height.' }));
   box.append(slider('Position X', tp.cx, 0, 1, 0.001, v => { tp.cx = v; commit(); }, v => v.toFixed(3)));
   box.append(slider('Position Y', tp.cy, 0, 1, 0.001, v => { tp.cy = v; commit(); }, v => v.toFixed(3)));
-  box.append(el('div', { class: 'row' }, btn('Make surface from template', () => { C.applyOp(state, { type: 'surfaceFromTemplate', outputId: o.id }); commit(true); }, 'primary')));
-  box.append(el('p', { class: 'hint', text: 'Once the real object sits inside the outline, this creates a surface on it (with a circular mask for a sphere) that you can fine-tune like any other.' }));
+  box.append(el('div', { class: 'row wrap' },
+    btn('Make surface from template', () => { C.applyOp(state, { type: 'surfaceFromTemplate', outputId: o.id }); commit(true); }, 'primary'),
+    btn('Make 360° ball surface', () => { C.applyOp(state, { type: 'surfaceFromTemplate', outputId: o.id, kind: 'sphere' }); commit(true); })));
+  box.append(el('p', { class: 'hint', text: 'Once the real object sits inside the outline, this creates a surface on it (with a circular mask for a sphere) that you can fine-tune like any other. The 360° ball surface instead wraps a 2:1 panoramic strip round the ball, so several projectors round it can share one video (see the surface\'s Type).' }));
 
   box.append(el('h3', { text: 'Brightness ramp' }));
   box.append(el('p', { class: 'hint', text: 'Gain at each edge, blended across the frame. Raise the edge that is farthest from the projector (usually the top) to even out the picture. Above 1 can clip bright content.' }));
@@ -493,12 +495,28 @@ function surfaceInspector(o, s) {
   box.append(checkInput('Lock shape', s.locked, v => { s.locked = v; commit(); }));
   box.append(slider('Opacity', s.opacity, 0, 1, 0.01, v => { s.opacity = v; commit(); }, v => v.toFixed(2)));
 
+  box.append(el('h3', { text: 'Type' }));
+  box.append(field('Type', selectInput(s.kind, [{ value: 'flat', label: 'Flat (warped picture)' }, { value: 'sphere', label: '360° ball (panoramic strip wrapped round it)' }],
+    v => { s.kind = v; if (v === 'sphere') C.applyOp(state, { type: 'setGrid', surfaceId: s.id, cols: 2, rows: 2 }); commit(true); })));
+  box.append(checkInput('Add light (black is see-through, for layering over another surface)', s.additive, v => { s.additive = v; commit(); }));
+  if (s.kind === 'sphere') {
+    const sp = s.sphere;
+    box.append(el('p', { class: 'hint', text: 'Drag the four corners so the dashed circle sits on the ball. The projector\'s throw ratio and lens offset come from this output\'s Setup template, so set those first. The source must be a 2:1 equirectangular strip (like a 360° video): its middle lands on the point of the ball facing projector 1, and anything moving right in the strip travels round the ball to the right as seen from projector 1.' }));
+    box.append(slider('Position round the ball (°)', sp.az, -180, 180, 1, v => { sp.az = v; commit(); }, v => `${v}°`));
+    box.append(el('p', { class: 'hint', text: 'Stand behind projector 1 (0°) facing the ball and walk right round it: a projector a third of the way round is at 120°, two thirds at 240° (or −120°). Height above or below the ball is worked out from where the ball sits in the frame, assuming the projector is level.' }));
+    box.append(slider('Projector tilt (°)', sp.pitch, -45, 45, 0.5, v => { sp.pitch = v; commit(); }, v => `${v}°`));
+    box.append(slider('Overlap sharpness', sp.blendPow, 0.5, 8, 0.1, v => { sp.blendPow = v; commit(); }, v => v.toFixed(1)));
+    box.append(slider('Blend gamma', sp.blendGamma, 1, 3, 0.05, v => { sp.blendGamma = v; commit(); }, v => v.toFixed(2)));
+    box.append(el('p', { class: 'hint', text: 'Where projectors overlap each one\'s share follows how squarely it hits the surface; higher sharpness hands over faster. Blend gamma should match the projectors (2.2 is typical). Use Show → Grid on all of them: the lines must coincide on the ball.' }));
+  }
+
   box.append(el('h3', { text: 'Warp grid' }));
   const cols = numInput(s.cols, C.MIN_GRID, C.MAX_GRID, 1);
   const rows = numInput(s.rows, C.MIN_GRID, C.MAX_GRID, 1);
   const apply = () => { C.applyOp(state, { type: 'setGrid', surfaceId: s.id, cols: +cols.value, rows: +rows.value }); commit(true); };
   cols.addEventListener('change', apply);
   rows.addEventListener('change', apply);
+  if (s.kind === 'sphere') { cols.disabled = rows.disabled = true; }
   box.append(el('div', { class: 'row' }, field('Columns', cols), field('Rows', rows)));
   box.append(field('Between points', selectInput(s.interp, [{ value: 'smooth', label: 'Smooth curve' }, { value: 'linear', label: 'Straight lines' }], v => { s.interp = v; commit(); })));
   box.append(el('p', { class: 'hint', text: '2×2 is a corner pin (perspective-correct, for flat surfaces). More points let the image follow the object: Smooth bends through them (columns, domes), Straight creases at them (boxes, crosses, folded walls). Changing the grid keeps the current shape.' }));
