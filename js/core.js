@@ -47,6 +47,36 @@ export function gridPoints(cols, rows, inset = 0.1) {
   return pts;
 }
 
+// Physical-object templates: the real size of the thing you will light, so the projector can be
+// placed and zoomed before the object is even there. Pixels per inch follow from throw ratio and distance.
+export const TEMPLATE_PRESETS = [
+  { id: 'moon60', name: 'Inflatable moon, 60 in (Amazon B0BD4Z19TT)', shape: 'circle', widthIn: 60, heightIn: 60 },
+  { id: 'moon36', name: 'Inflatable moon, 36 in', shape: 'circle', widthIn: 36, heightIn: 36 },
+  { id: 'custom', name: 'Custom size', shape: 'rect', widthIn: 48, heightIn: 96 },
+];
+export function defaultTemplate() {
+  return { enabled: false, preset: 'moon60', name: 'Moon', shape: 'circle', widthIn: 60, heightIn: 60, throwRatio: 1.3, distanceFt: 12, cx: 0.5, cy: 0.5 };
+}
+export function upgradeOutput(o) {
+  if (!o.template) o.template = defaultTemplate();
+  if (!o.ramp) o.ramp = { top: 1, bottom: 1, left: 1, right: 1 };
+  return o;
+}
+// What the template covers in output pixels at the given throw ratio and distance.
+export function templateMetrics(o) {
+  const t = o.template;
+  const frameWidthIn = (t.distanceFt * 12) / Math.max(0.1, t.throwRatio);
+  const frameHeightIn = frameWidthIn * o.height / o.width;
+  const ppi = o.width / frameWidthIn;
+  return { frameWidthIn, frameHeightIn, ppi, wPx: t.widthIn * ppi, hPx: t.heightIn * ppi, fraction: (t.widthIn * ppi) / o.width };
+}
+// Distance (ft) at which the template spans `fraction` of the frame width.
+export function templateDistanceFor(o, fraction) {
+  const t = o.template;
+  const frameWidthIn = t.widthIn / clamp(fraction, 0.05, 1);
+  return (frameWidthIn * t.throwRatio) / 12;
+}
+
 export function makeOutput(index) {
   return {
     id: uid(),
@@ -61,6 +91,7 @@ export function makeOutput(index) {
     brightness: 1,
     gamma: 1,
     ramp: { top: 1, bottom: 1, left: 1, right: 1 },   // gain at each edge, interpolated across the frame (far edges need more)
+    template: defaultTemplate(),                     // physical object outline for projector setup
     testPattern: false,
     editOverlay: true,
   };
@@ -121,6 +152,7 @@ export function maskPreset(kind, a = 0.25) {
     ].map(([u, v]) => ({ u, v }));
   }
   if (kind === 'diamond') return [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]].map(([u, v]) => ({ u, v }));
+  if (kind === 'circle') { const pts = []; for (let i = 0; i < 32; i++) { const a = i / 32 * Math.PI * 2; pts.push({ u: 0.5 + 0.5 * Math.cos(a), v: 0.5 + 0.5 * Math.sin(a) }); } return pts; }
   return [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => ({ u, v }));
 }
 
@@ -384,6 +416,21 @@ export function applyOp(state, op) {
       if (!f) return false;
       const s = f.surface, H = cornerH(s);
       for (let r = 0; r < s.rows; r++) for (let c = 0; c < s.cols; c++) s.pts[r][c] = H(c / (s.cols - 1), r / (s.rows - 1));
+      return true;
+    }
+    case 'surfaceFromTemplate': {
+      const o = findOutput(state, op.outputId);
+      if (!o) return false;
+      upgradeOutput(o);
+      const t = o.template, m = templateMetrics(o);
+      const hw = (m.wPx / o.width) / 2, hh = (m.hPx / o.height) / 2;
+      const s = makeSurface(o.surfaces.length + 1, null);
+      s.name = t.name || 'Template';
+      s.pts = [[{ x: t.cx - hw, y: t.cy - hh }, { x: t.cx + hw, y: t.cy - hh }], [{ x: t.cx - hw, y: t.cy + hh }, { x: t.cx + hw, y: t.cy + hh }]];
+      if (t.shape === 'circle') s.mask = { enabled: true, pts: maskPreset('circle'), feather: 0.02, invert: false };
+      s.fill = 'grid';
+      o.surfaces.push(s);
+      state.selection = { outputId: o.id, surfaceId: s.id, point: null };
       return true;
     }
     case 'fullFrame': {

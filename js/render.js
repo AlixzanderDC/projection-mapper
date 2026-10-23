@@ -1,5 +1,5 @@
 // render.js — WebGL2 renderer for one output, plus the 2D handle/test-pattern overlay.
-import { evalMesh, outline, surfaceFn } from './core.js';
+import { evalMesh, outline, surfaceFn, templateMetrics } from './core.js';
 
 const SURF_VS = `#version 300 es
 layout(location=0) in vec2 aPos;
@@ -329,6 +329,7 @@ export function drawOverlay(ctx, output, state, W, H, opts = {}) {
   const { density = 48, handles = true } = opts;
   ctx.clearRect(0, 0, W, H);
   if (output.testPattern) drawTestPattern(ctx, output, W, H);
+  if (output.template && output.template.enabled) drawTemplate(ctx, output, W, H);
   if (!handles) return;
   const sel = state.selection;
   ctx.lineJoin = 'round';
@@ -415,6 +416,31 @@ export function drawOverlay(ctx, output, state, W, H, opts = {}) {
       }
     }
   }
+}
+
+// Outline of the physical object at its computed pixel size: line the real thing up inside it.
+function drawTemplate(ctx, output, W, H) {
+  const t = output.template, m = templateMetrics(output);
+  const sx = W / output.width, sy = H / output.height;
+  const cx = t.cx * W, cy = t.cy * H, w = m.wPx * sx, h = m.hPx * sy;
+  ctx.save();
+  ctx.setLineDash([12, 8]);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#ffd24a';
+  ctx.beginPath();
+  if (t.shape === 'circle') ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+  else ctx.rect(cx - w / 2, cy - h / 2, w, h);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,210,74,0.6)';
+  ctx.beginPath(); ctx.moveTo(cx - w / 2, cy); ctx.lineTo(cx + w / 2, cy); ctx.moveTo(cx, cy - h / 2); ctx.lineTo(cx, cy + h / 2); ctx.stroke();
+  ctx.fillStyle = '#ffd24a';
+  ctx.font = `${Math.max(12, Math.round(H / 45))}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`${t.name}: ${t.widthIn}×${t.heightIn} in → ${Math.round(m.wPx)}×${Math.round(m.hPx)} px at ${t.distanceFt} ft, ${t.throwRatio}:1`, cx, Math.min(H - 24, cy + h / 2 + 8));
+  ctx.restore();
 }
 
 function drawTestPattern(ctx, output, W, H) {

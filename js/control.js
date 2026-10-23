@@ -24,7 +24,7 @@ function normalize(raw) {
   s.transport = Object.assign(C.defaultState().transport, raw.transport || {}, { playing: false, pausedAt: 0 });
   s.selection = Object.assign(C.defaultState().selection, raw.selection || {});
   for (const m of s.media) if (!m.persistent) m.missing = true; // blob: URLs die with the page
-  for (const o of s.outputs) for (const sf of o.surfaces) C.upgradeSurface(sf);
+  for (const o of s.outputs) { C.upgradeOutput(o); for (const sf of o.surfaces) C.upgradeSurface(sf); }
   return s;
 }
 
@@ -412,6 +412,32 @@ function outputInspector(o) {
   box.append(slider('Brightness', o.brightness, 0, 1, 0.01, v => { o.brightness = v; commit(); }, v => v.toFixed(2)));
   box.append(slider('Gamma', o.gamma, 0.5, 3, 0.01, v => { o.gamma = v; commit(); }, v => v.toFixed(2)));
 
+  box.append(el('h3', { text: 'Setup template' }));
+  C.upgradeOutput(o);
+  const tp = o.template;
+  box.append(el('p', { class: 'hint', text: 'The real object at its real size, drawn on the projector as a dashed outline, so you can place and zoom the projector before the object is lit. Enter the lens throw ratio (distance ÷ image width; it is in the projector\'s spec sheet) and the distance.' }));
+  box.append(checkInput('Show template on this projector', tp.enabled, v => { tp.enabled = v; commit(); }));
+  box.append(field('Object', selectInput(tp.preset, C.TEMPLATE_PRESETS.map(p => ({ value: p.id, label: p.name })), v => {
+    const p = C.TEMPLATE_PRESETS.find(x => x.id === v); tp.preset = v; tp.shape = p.shape; tp.widthIn = p.widthIn; tp.heightIn = p.heightIn; tp.name = v === 'custom' ? 'Object' : (v.startsWith('moon') ? 'Moon' : p.name); commit(true);
+  })));
+  box.append(field('Name', textInput(tp.name, v => { tp.name = v; commit(); })));
+  box.append(el('div', { class: 'row' },
+    field('Width (in)', numInput(tp.widthIn, 1, 600, 0.5, v => { tp.widthIn = v; if (tp.shape === 'circle') tp.heightIn = v; commit(true); })),
+    field('Height (in)', numInput(tp.heightIn, 1, 600, 0.5, v => { tp.heightIn = v; if (tp.shape === 'circle') tp.widthIn = v; commit(true); })),
+    field('Shape', selectInput(tp.shape, [{ value: 'circle', label: 'Circle / sphere' }, { value: 'rect', label: 'Rectangle' }], v => { tp.shape = v; commit(true); }))));
+  box.append(el('div', { class: 'row' },
+    field('Throw ratio', numInput(tp.throwRatio, 0.2, 5, 0.01, v => { tp.throwRatio = v; commit(true); })),
+    field('Distance (ft)', numInput(tp.distanceFt, 1, 200, 0.1, v => { tp.distanceFt = v; commit(true); }))));
+  const tm = C.templateMetrics(o);
+  box.append(el('p', { class: 'hint', text: `At ${tp.distanceFt} ft the image is ${tm.frameWidthIn.toFixed(0)} × ${tm.frameHeightIn.toFixed(0)} in (${tm.ppi.toFixed(1)} px per inch). The ${tp.name.toLowerCase()} spans ${Math.round(tm.wPx)} × ${Math.round(tm.hPx)} px, ${Math.round(tm.fraction * 100)}% of the width.` }));
+  box.append(el('div', { class: 'row wrap' },
+    btn('Distance for 70% of width', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.7) * 10) / 10; commit(true); }),
+    btn('Distance for 90% of width', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.9) * 10) / 10; commit(true); })));
+  box.append(slider('Position X', tp.cx, 0, 1, 0.001, v => { tp.cx = v; commit(); }, v => v.toFixed(3)));
+  box.append(slider('Position Y', tp.cy, 0, 1, 0.001, v => { tp.cy = v; commit(); }, v => v.toFixed(3)));
+  box.append(el('div', { class: 'row' }, btn('Make surface from template', () => { C.applyOp(state, { type: 'surfaceFromTemplate', outputId: o.id }); commit(true); }, 'primary')));
+  box.append(el('p', { class: 'hint', text: 'Once the real object sits inside the outline, this creates a surface on it (with a circular mask for a sphere) that you can fine-tune like any other.' }));
+
   box.append(el('h3', { text: 'Brightness ramp' }));
   box.append(el('p', { class: 'hint', text: 'Gain at each edge, blended across the frame. Raise the edge that is farthest from the projector (usually the top) to even out the picture. Above 1 can clip bright content.' }));
   if (!o.ramp) o.ramp = { top: 1, bottom: 1, left: 1, right: 1 };
@@ -493,7 +519,7 @@ function surfaceInspector(o, s) {
   if (mk.enabled) {
     const arm = numInput(0.25, 0.02, 0.48, 0.01);
     const preset = kind => () => { C.applyOp(state, { type: 'setMask', surfaceId: s.id, preset: kind, arm: parseFloat(arm.value) || 0.25 }); commit(true); };
-    box.append(el('div', { class: 'row wrap' }, btn('X cross', preset('x')), btn('Plus', preset('plus')), btn('Diamond', preset('diamond')), btn('Rectangle', preset('rect')), field('Arm width', arm)));
+    box.append(el('div', { class: 'row wrap' }, btn('X cross', preset('x')), btn('Plus', preset('plus')), btn('Diamond', preset('diamond')), btn('Circle', preset('circle')), btn('Rectangle', preset('rect')), field('Arm width', arm)));
     box.append(el('p', { class: 'hint', text: `${mk.pts.length} points. Drag the pink diamonds in the preview or on the projector. Click one and press Insert (or +) to add a point after it, Delete to remove it.` }));
     box.append(el('div', { class: 'row' },
       btn('Add point', () => { C.applyOp(state, { type: 'addMaskPoint', surfaceId: s.id, after: state.selection.point?.mask ?? null }); commit(true); }),

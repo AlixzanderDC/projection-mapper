@@ -80,6 +80,10 @@ Once a shape is mapped, you usually want video made for it rather than a rectang
 
 Make the video at that size, put it in `media/`, add a surface, press **Full frame** (the whole projector, 1:1), and pick the video as its source. Nothing else to warp: the content already has the shape. Keep the original mapped surfaces in the show if you want to switch between warped rectangles and purpose-made content; just toggle **Visible**.
 
+## Setting up around a known object
+
+If you know the real size of what you'll light (a 60-inch inflatable moon, say), the projector can be placed before the object is even there. In the projector inspector, **Setup template**: pick the object (or enter a custom size), the lens's throw ratio from its spec sheet (distance ÷ image width), and the distance. The projector shows a dashed outline of the object at its true pixel size, with the numbers (image size in inches, pixels per inch, percentage of the frame). The **Distance for 70 %** button tells you where to stand the projector so the object fills most of the frame with room for edge content. Hang the object inside the outline, then **Make surface from template** turns the outline into a mapped surface (circular mask for a sphere) to fine-tune.
+
 ## Multiple projectors on one wall
 
 1. Add two projectors, open both windows, put each on its display, press **F** in each.
