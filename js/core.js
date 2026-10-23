@@ -55,7 +55,7 @@ export const TEMPLATE_PRESETS = [
   { id: 'custom', name: 'Custom size', shape: 'rect', widthIn: 48, heightIn: 96 },
 ];
 export function defaultTemplate() {
-  return { enabled: false, preset: 'moon60', name: 'Moon', shape: 'circle', widthIn: 60, heightIn: 60, throwRatio: 1.3, distanceFt: 12, cx: 0.5, cy: 0.5 };
+  return { enabled: false, preset: 'moon60', name: 'Moon', shape: 'circle', widthIn: 60, heightIn: 60, throwRatio: 1.3, distanceFt: 12, lensOffset: 1.0, cx: 0.5, cy: 0.5 };
 }
 export function upgradeOutput(o) {
   if (!o.template) o.template = defaultTemplate();
@@ -68,7 +68,13 @@ export function templateMetrics(o) {
   const frameWidthIn = (t.distanceFt * 12) / Math.max(0.1, t.throwRatio);
   const frameHeightIn = frameWidthIn * o.height / o.width;
   const ppi = o.width / frameWidthIn;
-  return { frameWidthIn, frameHeightIn, ppi, wPx: t.widthIn * ppi, hPx: t.heightIn * ppi, fraction: (t.widthIn * ppi) / o.width };
+  // Lens offset: 0 = image centred on the lens axis, 1 = image bottom edge at lens height (common).
+  // With the template at cy, the lens must sit this far below the object's centre for it to land there.
+  const off = t.lensOffset ?? 1;
+  const centreAboveLensIn = off * frameHeightIn / 2;
+  const objectAboveCentreIn = (0.5 - t.cy) * frameHeightIn;
+  const lensBelowObjectIn = centreAboveLensIn + objectAboveCentreIn;
+  return { frameWidthIn, frameHeightIn, ppi, wPx: t.widthIn * ppi, hPx: t.heightIn * ppi, fraction: (t.widthIn * ppi) / o.width, lensBelowObjectIn };
 }
 // Distance (ft) at which the template spans `fraction` of the frame width.
 export function templateDistanceFor(o, fraction) {

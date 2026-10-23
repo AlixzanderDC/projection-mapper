@@ -427,9 +427,12 @@ function outputInspector(o) {
     field('Shape', selectInput(tp.shape, [{ value: 'circle', label: 'Circle / sphere' }, { value: 'rect', label: 'Rectangle' }], v => { tp.shape = v; commit(true); }))));
   box.append(el('div', { class: 'row' },
     field('Throw ratio', numInput(tp.throwRatio, 0.2, 5, 0.01, v => { tp.throwRatio = v; commit(true); })),
-    field('Distance (ft)', numInput(tp.distanceFt, 1, 200, 0.1, v => { tp.distanceFt = v; commit(true); }))));
+    field('Distance (ft)', numInput(tp.distanceFt, 1, 200, 0.1, v => { tp.distanceFt = v; commit(true); })),
+    field('Lens offset', numInput(tp.lensOffset ?? 1, -1, 2, 0.05, v => { tp.lensOffset = v; commit(true); }))));
+  box.append(el('p', { class: 'hint', text: 'Lens offset is in the spec sheet: 1.0 (or "100%") means the bottom edge of the picture is level with the lens, 0 means the picture is centred on the lens, 0.5 is halfway.' }));
   const tm = C.templateMetrics(o);
-  box.append(el('p', { class: 'hint', text: `At ${tp.distanceFt} ft the image is ${tm.frameWidthIn.toFixed(0)} × ${tm.frameHeightIn.toFixed(0)} in (${tm.ppi.toFixed(1)} px per inch). The ${tp.name.toLowerCase()} spans ${Math.round(tm.wPx)} × ${Math.round(tm.hPx)} px, ${Math.round(tm.fraction * 100)}% of the width.` }));
+  const lensLine = tm.lensBelowObjectIn >= 0 ? `Mount the lens ${tm.lensBelowObjectIn.toFixed(0)} in below the ${tp.name.toLowerCase()}'s centre` : `Mount the lens ${(-tm.lensBelowObjectIn).toFixed(0)} in above the ${tp.name.toLowerCase()}'s centre`;
+  box.append(el('p', { class: 'hint', text: `At ${tp.distanceFt} ft the image is ${tm.frameWidthIn.toFixed(0)} × ${tm.frameHeightIn.toFixed(0)} in (${tm.ppi.toFixed(1)} px per inch). The ${tp.name.toLowerCase()} spans ${Math.round(tm.wPx)} × ${Math.round(tm.hPx)} px, ${Math.round(tm.fraction * 100)}% of the width. ${lensLine}, square to the object, for it to land on the outline.` }));
   box.append(el('div', { class: 'row wrap' },
     btn('Distance for 70% of width', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.7) * 10) / 10; commit(true); }),
     btn('Distance for 90% of width', () => { tp.distanceFt = Math.round(C.templateDistanceFor(o, 0.9) * 10) / 10; commit(true); })));
