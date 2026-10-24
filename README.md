@@ -146,6 +146,10 @@ Almost all of the memory is video decoders: one per file, per window that shows 
 - One cue (one set of sources) per show file. Make a show file per look and **Open…** between them.
 - Windows are placed by hand in Firefox. Chrome/Edge support **Detect displays** and will open a projector window on a chosen screen.
 
+## Skills for coding agents: `skills/`
+
+`skills/` holds three Agent Skills (Claude Code `SKILL.md` format) distilled from the projection-mapping literature and tools: `projection-mapping-geometry` (homographies, warps, calibration, spheres and domes), `multi-projector-blending` (Bourke ramps, gamma, black level, 3-D blending, MPCDI, with a GLSL reference) and `projection-show-workflow` (survey, signal/EDID/sync, on-site order of operations, content codecs, spheres and inflatables, troubleshooting). Copy a folder into `~/.claude/skills/` to use it; see `skills/README.md`.
+
 ## License
 
 MIT — see `LICENSE`.

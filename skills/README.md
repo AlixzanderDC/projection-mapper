@@ -1,0 +1,11 @@
+# Skills for coding agents
+
+Three [Agent Skills](https://agentskills.io) (Claude Code `SKILL.md` format) distilled from the published literature and the open-source and commercial tools of the projection-mapping field. They are not specific to this app; copy any folder into `~/.claude/skills/` (or your agent's skills directory) and the agent will load it when the topic comes up.
+
+| Skill | What it teaches |
+|---|---|
+| `projection-mapping-geometry/` | Homographies (DLT + Hartley normalization, 4×4 packing), perspective-correct quads, warp grids (Bézier, Catmull-Rom, TPS), UV warp maps (PFM, Bourke `.data`), projector intrinsics from throw ratio and lens shift, camera–projector calibration (Gray codes, phase shift, Zhang, Moreno–Taubin, solvePnP, RoomAlive), spheres/domes/quadrics. Includes the full math research report with sources and a map of codebases to read. |
+| `multi-projector-blending/` | Bourke's soft-edge ramp, gamma-correct blending in linear light, black-level lift, overlap guidance, incidence-angle blending on 3-D surfaces, camera-based masks, Majumder's luminance attenuation maps, colour matching, the test procedure, MPCDI/PFM/alpha/beta formats. Ships `assets/blend.glsl`. |
+| `projection-show-workflow/` | Site survey and lumens/lux, throw ratio and lens shift, placement, EDID/outputs/sync/bandwidth, on-site order of operations, content production (templates, equirectangular strips, Hap/DXV/NotchLC vs H.264, frame rates, loops), spheres and inflatables (NOAA SOS procedure), troubleshooting table, printable checklist. Includes the full tools-and-workflow survey with URLs. |
+
+Everything quoted is attributed in the `references/` files; derivations and unverified items are tagged `[derived]` / `[unverified]`. Licence: MIT, same as the rest of this repository. The referenced third-party projects keep their own licences.
