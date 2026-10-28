@@ -100,6 +100,21 @@ Where projectors overlap, each one's share follows how squarely it hits the surf
 
 The strip is decoded once per projector window, so keep it modest: 2048×1024 reads well on a 60-inch ball from 1080p projectors.
 
+## Bake a projector's picture into a video (USB stick, media player, Plex)
+
+`tools/bake.js` renders one projector's finished output, warp, masks, soft edges, edge blend, brightness, gamma, software flip and 360° ball surfaces included, into a plain H.264 MP4 at that projector's resolution. Play that file from the projector's own USB media player, a stick box or Plex and no computer, cable run or mapper is needed at show time. It reuses `js/render.js` through `bake.html`, so the file matches the projector window exactly.
+
+Needs Node, ffmpeg and Playwright with Chrome. Once, in the project folder: `winget install Gyan.FFmpeg` (open a new terminal afterwards) and `npm install playwright` (Playwright drives the Chrome you already have; no browser download is needed).
+
+1. Map the projector as usual, with the mapper driving it live. Hide or delete surfaces on other projectors that share a ball with it, because a ball surface blends with every visible ball surface on the same source.
+2. **Save as…** writes the show file (`.pmap.json`). Keep the source videos in `media/`; the tool finds them by name.
+3. Render:
+   ```
+   node tools/bake.js shows\moon.pmap.json "Projector 1" media\baked\moon.mp4 --loops 10
+   ```
+   The projector is its name, its id or its number in the show. The file runs for the longest video on that projector (or `--duration`), at 30 fps (or `--fps`), with the sound of the first video that has any (`--audio FILE` or `--audio none`). `--loops N` repeats the finished file N times without re-encoding, so the player's restart gap comes rarely. `--preview` writes three PNG frames instead of a video to check the look first. `--show` renders in a visible Chrome window, which uses the graphics card; headless Chrome can fall back to slow software rendering.
+4. On the player: output at the projector's native resolution, overscan and picture zoom off, same picture mode as when you aligned, HDMI range so that black is black. Any scaling moves the picture off the mapping. A FAT32 stick cannot hold a file over 4 GB (the tool warns); format it exFAT or use fewer loops.
+
 ## One window for all projectors (lighter on the machine)
 
 Every projector window decodes each video it shows and runs its own WebGL context, so three windows showing one banner mean three decodes. **Open all in one window** (toolbar) opens `output.html?ids=all`: one window, one context, one decode per video, with the projectors laid out side by side in the show's order, each getting its own pixels. The pointer edits whichever projector it is over; keys (E, T, arrows) go to that one; camera calibration still works per projector.

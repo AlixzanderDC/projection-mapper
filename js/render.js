@@ -147,7 +147,7 @@ uniform vec4 uBlendG;   // blend curve gamma per edge
 uniform float uBrightness;
 uniform float uGamma;
 uniform vec4 uGain;     // top, bottom, left, right edge gain
-uniform vec2 uFlip;     // 1 = as is, -1 = flipped on that axis (x: mirror, y: upside down); both = rotated 180°
+uniform vec2 uFlip;     // 1 = as is, -1 = flipped on that axis; both = rotated 180°, x only = mirror
 out vec4 outColor;
 float ramp(float d, float w, float g) {
   if (w <= 0.0) return 1.0;
@@ -386,7 +386,9 @@ export class Renderer {
     const rp = output.ramp || { top: 1, bottom: 1, left: 1, right: 1 };
     gl.uniform4f(c.uGain, rp.top, rp.bottom, rp.left, rp.right);
     const fl = output.flip || 'none';
-    gl.uniform2f(c.uFlip, fl.startsWith('mirror') ? -1 : 1, fl.endsWith('rot180') ? -1 : 1);
+    // A 180° turn flips both axes; a mirror flips x only; mirror + 180° leaves x alone and flips y.
+    const rot = fl.endsWith('rot180'), mir = fl.startsWith('mirror');
+    gl.uniform2f(c.uFlip, rot !== mir ? -1 : 1, rot ? -1 : 1);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     if (rect) gl.disable(gl.SCISSOR_TEST);
   }

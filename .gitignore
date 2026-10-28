@@ -10,3 +10,7 @@ Thumbs.db
 desktop.ini
 *.swp
 __pycache__/
+# Playwright installed next to the repo for tools/bake.js
+node_modules/
+package.json
+package-lock.json

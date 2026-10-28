@@ -70,7 +70,7 @@ const editor = new Editor(overlay, {
   send,
 });
 // How this output's picture is flipped in software (see output.flip); the overlay and pointer follow it.
-function flipOf(o) { const fl = o?.flip || 'none'; return { x: fl.startsWith('mirror'), y: fl.endsWith('rot180') }; }
+function flipOf(o) { const fl = o?.flip || 'none', rot = fl.endsWith('rot180'), mir = fl.startsWith('mirror'); return { x: rot !== mir, y: rot }; }   // 180° = both axes; mirror = x; both = y only
 // Which output the pointer is over (not while dragging: a drag stays with the output it started in).
 overlay.addEventListener('pointermove', e => {
   if (!spanned || editor.drag) return;
