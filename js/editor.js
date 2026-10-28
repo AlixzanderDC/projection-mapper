@@ -4,7 +4,7 @@ import { evalMesh, outline, pointInPolygon, surfaceFn, surfaceInverse } from './
 const HIT_RADIUS = 10; // css px
 
 export class Editor {
-  // hooks.get() -> {state, output}; hooks.send(op) applies an edit.
+  // hooks.get() -> {state, output}; hooks.send(op) applies an edit; hooks.region() (optional) -> the output's CSS rect.
   constructor(canvas, hooks) {
     this.canvas = canvas;
     this.hooks = hooks;
@@ -18,9 +18,13 @@ export class Editor {
     canvas.addEventListener('contextmenu', e => e.preventDefault());
   }
 
+  // Pointer position normalized to the output's region of the canvas (hooks.region() -> {x, y, w, h} in
+  // CSS pixels, for a spanned window; absent = the whole canvas).
   toNorm(e) {
     const r = this.canvas.getBoundingClientRect();
-    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, W: r.width, H: r.height };
+    const rg = this.hooks.region ? this.hooks.region() : null;
+    const x0 = r.left + (rg ? rg.x : 0), y0 = r.top + (rg ? rg.y : 0), w = rg ? rg.w : r.width, h = rg ? rg.h : r.height;
+    return { x: (e.clientX - x0) / w, y: (e.clientY - y0) / h, W: w, H: h };
   }
 
   hit(p) {

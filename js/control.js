@@ -375,7 +375,21 @@ function updateStatusTexts() {
 function statusText(o) {
   const st = outputStatus.get(o.id);
   if (!isConnected(o)) return 'Projector window: not open';
+  if (st.spanned) return `Spanned window: this projector gets ${st.width}×${st.height} of ${st.windowWidth}×${st.windowHeight}`;
   return `Projector window: ${st.width}×${st.height}${st.fullscreen ? ' · fullscreen' : ' · windowed (press F in it)'}`;
+}
+
+// One window for every projector: one WebGL context and one decode per video instead of one per window.
+// Stretch it across the displays (arranged side by side in the OS, in the show's projector order).
+let spanWindow = null;
+function openSpanned() {
+  if (spanWindow && !spanWindow.closed) { spanWindow.focus(); return; }
+  const w = state.outputs.reduce((a, o) => a + o.width, 0), h = Math.max(1, ...state.outputs.map(o => o.height));
+  let feat = `popup=yes,width=${w},height=${h}`;
+  if (screens && screens.length) feat += `,left=${Math.min(...screens.map(sc => sc.left))},top=${Math.min(...screens.map(sc => sc.top))}`;
+  spanWindow = window.open('output.html?ids=all', 'pmap-out-span', feat);
+  if (!spanWindow) { toast('Popup blocked — allow popups for this site, then try again'); return; }
+  toast(`Spanned window wants ${w}×${h}: if the browser clamped it to one display, drag its edges across the others. Chrome's own fullscreen only covers one display.`, 9000);
 }
 
 // ---------------------------------------------------------------- inspector (right column)
@@ -832,6 +846,7 @@ $('#btnImport').addEventListener('click', () => $('#fileImport').click());
 $('#fileImport').addEventListener('change', e => { if (e.target.files[0]) importShow(e.target.files[0]); e.target.value = ''; });
 $('#btnExport').addEventListener('click', exportShow);
 $('#btnOpenAll').addEventListener('click', () => state.outputs.forEach(o => openOutput(o)));
+$('#btnOpenSpan').addEventListener('click', openSpanned);
 $('#btnAddMedia').addEventListener('click', () => $('#fileMedia').click());
 $('#fileMedia').addEventListener('change', e => { addMediaFiles(e.target.files); e.target.value = ''; });
 $('#btnScan').addEventListener('click', scanFolder);

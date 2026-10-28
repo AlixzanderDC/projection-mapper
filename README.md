@@ -96,6 +96,20 @@ Where projectors overlap, each one's share follows how squarely it hits the surf
 
 The strip is decoded once per projector window, so keep it modest: 2048×1024 reads well on a 60-inch ball from 1080p projectors.
 
+## One window for all projectors (lighter on the machine)
+
+Every projector window decodes each video it shows and runs its own WebGL context, so three windows showing one banner mean three decodes. **Open all in one window** (toolbar) opens `output.html?ids=all`: one window, one context, one decode per video, with the projectors laid out side by side in the show's order, each getting its own pixels. The pointer edits whichever projector it is over; keys (E, T, arrows) go to that one; camera calibration still works per projector.
+
+1. In Windows Settings → Display, arrange the projector displays side by side in projector order, same resolution, no gaps or offsets.
+2. Click **Open all in one window**. Browsers clamp a popup to one display, so un-maximize it and drag its left edge to the left edge of the first projector and its right edge to the end of the last one (a window may span displays). The HUD says when the window matches what the projectors want (e.g. 5760×1080). Press E to hide the handles.
+3. For an exact, frameless window, start Chrome with the page *before* opening the control window, then open the control window in that same Chrome (the flags only apply when Chrome is not already running):
+
+```powershell
+Start-Process chrome.exe "--app=http://127.0.0.1:8765/output.html?ids=all --window-position=0,0 --window-size=5760,1080"
+```
+
+Chrome's own fullscreen (F) only covers one display, so a spanned window stays a window. `?ids=ID1,ID2` (projector ids from the show file) spans a subset.
+
 ## Multiple projectors on one wall
 
 1. Add two projectors, open both windows, put each on its display, press **F** in each.

@@ -221,17 +221,18 @@ export class Renderer {
     gl.bindVertexArray(null);
     this.emptyVao = gl.createVertexArray();
 
-    this.fbo = gl.createFramebuffer();
-    this.sceneTex = gl.createTexture();
-    this.cutFbo = gl.createFramebuffer();
-    this.cutTex = gl.createTexture();
-    this.fboW = 0; this.fboH = 0;
+    this.fbos = new Map();   // one scene/cut framebuffer pair per output size (a spanned window renders several outputs)
+    this.fbo = null; this.sceneTex = null; this.cutFbo = null; this.cutTex = null;
   }
 
+  // Binds the framebuffer pair for an output of w×h pixels, allocating it on first use.
   ensureFbo(w, h) {
-    if (w === this.fboW && h === this.fboH) return;
+    const key = w + 'x' + h;
+    let f = this.fbos.get(key);
+    if (f) { this.fbo = f.fbo; this.sceneTex = f.tex; this.cutFbo = f.cutFbo; this.cutTex = f.cutTex; return; }
     const gl = this.gl;
-    for (const [fbo, tex] of [[this.fbo, this.sceneTex], [this.cutFbo, this.cutTex]]) {
+    f = { fbo: gl.createFramebuffer(), tex: gl.createTexture(), cutFbo: gl.createFramebuffer(), cutTex: gl.createTexture() };
+    for (const [fbo, tex] of [[f.fbo, f.tex], [f.cutFbo, f.cutTex]]) {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -242,7 +243,8 @@ export class Renderer {
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    this.fboW = w; this.fboH = h;
+    this.fbos.set(key, f);
+    this.fbo = f.fbo; this.sceneTex = f.tex; this.cutFbo = f.cutFbo; this.cutTex = f.cutTex;
   }
 
   // Draws one surface with the surface program bound. `cutTex` = screen-space cut mask or null.
@@ -312,9 +314,12 @@ export class Renderer {
   }
 
   // media: object with texture(mediaId) -> {tex} | null, or null for placeholders only.
-  render(output, state, media) {
+  // rect: {x, y, w, h} in canvas pixels (y down) to draw this output into; null = the whole canvas.
+  // The output is rendered at rect.w×rect.h, so a spanned window gives each projector its own pixels.
+  render(output, state, media, rect = null) {
     const gl = this.gl;
-    const W = this.canvas.width, H = this.canvas.height;
+    const CW = this.canvas.width, CH = this.canvas.height;
+    const W = rect ? Math.round(rect.w) : CW, H = rect ? Math.round(rect.h) : CH;
     if (!W || !H) return;
     this.ensureFbo(W, H);
 
@@ -353,9 +358,16 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.disable(gl.BLEND);
 
-    // Pass 2: edge blend + brightness/gamma to the screen.
+    // Pass 2: edge blend + brightness/gamma to the screen (into this output's rectangle).
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, W, H);
+    if (rect) {
+      const vx = Math.round(rect.x), vy = Math.round(CH - rect.y - rect.h);
+      gl.viewport(vx, vy, W, H);
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(vx, vy, W, H);
+    } else {
+      gl.viewport(0, 0, W, H);
+    }
     gl.useProgram(this.comp.prog);
     gl.bindVertexArray(this.emptyVao);
     gl.activeTexture(gl.TEXTURE0);
@@ -371,6 +383,7 @@ export class Renderer {
     const rp = output.ramp || { top: 1, bottom: 1, left: 1, right: 1 };
     gl.uniform4f(c.uGain, rp.top, rp.bottom, rp.left, rp.right);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (rect) gl.disable(gl.SCISSOR_TEST);
   }
 }
 
