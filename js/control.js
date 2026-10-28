@@ -523,6 +523,8 @@ function surfaceInspector(o, s) {
     box.append(slider('Position round the ball (°)', sp.az, -180, 180, 1, v => { sp.az = v; commit(); }, v => `${v}°`));
     box.append(el('p', { class: 'hint', text: 'Stand behind projector 1 (0°) facing the ball and walk right round it: a projector a third of the way round is at 120°, two thirds at 240° (or −120°). Height above or below the ball is worked out from where the ball sits in the frame, assuming the projector is level.' }));
     box.append(slider('Projector tilt (°)', sp.pitch, -45, 45, 0.5, v => { sp.pitch = v; commit(); }, v => `${v}°`));
+    box.append(slider('Projector roll (°)', sp.roll ?? 0, -30, 30, 0.25, v => { sp.roll = v; commit(); }, v => `${v}°`));
+    box.append(el('p', { class: 'hint', text: 'Roll: the projector is not level on its mount, so its grid runs at a slant across the neighbour\'s. Turn it until the equators cross parallel. Tilt: the projector is pitched up or down to aim at the ball.' }));
     box.append(slider('Overlap sharpness', sp.blendPow, 0.5, 8, 0.1, v => { sp.blendPow = v; commit(); }, v => v.toFixed(1)));
     box.append(slider('Blend gamma', sp.blendGamma, 1, 3, 0.05, v => { sp.blendGamma = v; commit(); }, v => v.toFixed(2)));
     box.append(el('p', { class: 'hint', text: 'Where projectors overlap each one\'s share follows how squarely it hits the surface; higher sharpness hands over faster. Blend gamma should match the projectors (2.2 is typical). Use Show → Grid on all of them: the lines must coincide on the ball.' }));

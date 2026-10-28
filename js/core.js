@@ -137,7 +137,7 @@ export function makeSurface(index, mediaId = null) {
 }
 
 export function defaultSphere() {
-  return { az: 0, pitch: 0, blendPow: 2, blendGamma: 2.2 };
+  return { az: 0, pitch: 0, roll: 0, blendPow: 2, blendGamma: 2.2 };
 }
 
 export const FILL_MODES = ['source', 'grid', 'color'];
@@ -192,8 +192,9 @@ export function sphereParams(o, s) {
   const alpha = Math.acos(clamp(v3.dot(dl, dr), -1, 1)) / 2;  // angular radius of the ball
   const L = 1 / Math.max(1e-3, Math.sin(alpha));                // distance to its centre in radii
   const sp = s.sphere || defaultSphere();
-  const pitch = (sp.pitch || 0) * Math.PI / 180;
-  const Yc = [0, Math.cos(pitch), Math.sin(pitch)];             // world up in camera coords (projector tilted up by `pitch`)
+  const pitch = (sp.pitch || 0) * Math.PI / 180, roll = (sp.roll || 0) * Math.PI / 180;
+  // World up in camera coords: projector tilted up by `pitch`, then rolled clockwise (seen from behind) by `roll`.
+  const Yc = [-Math.cos(pitch) * Math.sin(roll), Math.cos(pitch) * Math.cos(roll), Math.sin(pitch)];
   // Camera-space frame aimed at the ball, and the same frame in world space (Y up, ball at the origin).
   const fC = c, rC = v3.norm(v3.cross(Yc, fC)), uC = v3.cross(fC, rC);
   const el = -Math.asin(clamp(v3.dot(c, Yc), -1, 1));          // projector elevation above the ball's centre
