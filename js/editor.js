@@ -24,7 +24,11 @@ export class Editor {
     const r = this.canvas.getBoundingClientRect();
     const rg = this.hooks.region ? this.hooks.region() : null;
     const x0 = r.left + (rg ? rg.x : 0), y0 = r.top + (rg ? rg.y : 0), w = rg ? rg.w : r.width, h = rg ? rg.h : r.height;
-    return { x: (e.clientX - x0) / w, y: (e.clientY - y0) / h, W: w, H: h };
+    let x = (e.clientX - x0) / w, y = (e.clientY - y0) / h;
+    const fl = this.hooks.flip ? this.hooks.flip() : null;   // the window shows the picture flipped (ceiling/rear projector)
+    if (fl && fl.x) x = 1 - x;
+    if (fl && fl.y) y = 1 - y;
+    return { x, y, W: w, H: h };
   }
 
   hit(p) {

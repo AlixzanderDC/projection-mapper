@@ -59,6 +59,8 @@ export function defaultTemplate() {
 }
 export function upgradeOutput(o) {
   if (!o.template) o.template = defaultTemplate();
+  if (o.mount !== 'ceiling') o.mount = 'table';
+  if (!['rot180', 'mirror', 'mirror-rot180'].includes(o.flip)) o.flip = 'none';
   if (!o.ramp) o.ramp = { top: 1, bottom: 1, left: 1, right: 1 };
   return o;
 }
@@ -70,7 +72,8 @@ export function templateMetrics(o) {
   const ppi = o.width / frameWidthIn;
   // Lens offset: 0 = image centred on the lens axis, 1 = image bottom edge at lens height (common).
   // With the template at cy, the lens must sit this far below the object's centre for it to land there.
-  const off = t.lensOffset ?? 1;
+  // Ceiling mount: the projector hangs upside down, so the same offset throws the picture downward.
+  const off = (t.lensOffset ?? 1) * (o.mount === 'ceiling' ? -1 : 1);
   const centreAboveLensIn = off * frameHeightIn / 2;
   const objectAboveCentreIn = (0.5 - t.cy) * frameHeightIn;
   const lensBelowObjectIn = centreAboveLensIn + objectAboveCentreIn;
@@ -102,6 +105,8 @@ export function makeOutput(index) {
     template: defaultTemplate(),                     // physical object outline for projector setup
     testPattern: false,
     editOverlay: true,
+    mount: 'table',      // 'table' | 'ceiling': a ceiling-mounted projector hangs upside down, so its lens offset throws the picture downward
+    flip: 'none',        // 'none' | 'rot180' | 'mirror' | 'mirror-rot180': flip the picture in software (use the projector's own Ceiling/Rear setting when it has one)
   };
 }
 
@@ -164,7 +169,7 @@ export function upgradeSurface(s) {
 export function projectorIntrinsics(o) {
   const t = o.template || defaultTemplate();
   const f = Math.max(0.1, t.throwRatio || 1.3) * o.width;
-  const off = t.lensOffset ?? 1;
+  const off = (t.lensOffset ?? 1) * (o.mount === 'ceiling' ? -1 : 1);   // upside down: the axis sits at the top edge instead
   return { f, ppx: o.width / 2, ppy: o.height / 2 + off * o.height / 2 };
 }
 

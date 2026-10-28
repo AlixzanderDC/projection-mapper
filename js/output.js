@@ -66,8 +66,11 @@ function send(op) {
 const editor = new Editor(overlay, {
   get: () => ({ state: state || C.defaultState(), output: output() }),
   region: () => activeTarget()?.css || null,
+  flip: () => flipOf(output()),
   send,
 });
+// How this output's picture is flipped in software (see output.flip); the overlay and pointer follow it.
+function flipOf(o) { const fl = o?.flip || 'none'; return { x: fl.startsWith('mirror'), y: fl.endsWith('rot180') }; }
 // Which output the pointer is over (not while dragging: a drag stays with the output it started in).
 overlay.addEventListener('pointermove', e => {
   if (!spanned || editor.drag) return;
@@ -189,6 +192,8 @@ function frameBody() {
     ctx.save();
     ctx.translate(t.css.x, t.css.y);
     ctx.beginPath(); ctx.rect(0, 0, t.css.w, t.css.h); ctx.clip();
+    const fl = flipOf(t.o);
+    if (fl.x || fl.y) { ctx.translate(fl.x ? t.css.w : 0, fl.y ? t.css.h : 0); ctx.scale(fl.x ? -1 : 1, fl.y ? -1 : 1); }
     drawOverlay(ctx, t.o, state, t.css.w, t.css.h, { density: state.meshDensity, handles: t.o.editOverlay });
     if (spanned && t.o.editOverlay) {
       ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;

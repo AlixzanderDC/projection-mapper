@@ -147,6 +147,7 @@ uniform vec4 uBlendG;   // blend curve gamma per edge
 uniform float uBrightness;
 uniform float uGamma;
 uniform vec4 uGain;     // top, bottom, left, right edge gain
+uniform vec2 uFlip;     // 1 = as is, -1 = flipped on that axis (x: mirror, y: upside down); both = rotated 180°
 out vec4 outColor;
 float ramp(float d, float w, float g) {
   if (w <= 0.0) return 1.0;
@@ -154,12 +155,14 @@ float ramp(float d, float w, float g) {
   return t < 0.5 ? 0.5 * pow(2.0 * t, g) : 1.0 - 0.5 * pow(2.0 * (1.0 - t), g);
 }
 void main() {
-  vec2 px = vUV * uRes;   // px.y counts from the bottom
+  // The whole picture (blend ramps and gain included) is flipped as one, so the projector throws the upright frame.
+  vec2 uv = mix(vUV, 1.0 - vUV, step(uFlip, vec2(0.0)));
+  vec2 px = uv * uRes;    // px.y counts from the bottom
   float f = ramp(px.x, uBlendW.x, uBlendG.x) * ramp(uRes.x - px.x, uBlendW.y, uBlendG.y)
           * ramp(uRes.y - px.y, uBlendW.z, uBlendG.z) * ramp(px.y, uBlendW.w, uBlendG.w);
-  float gainV = mix(uGain.y, uGain.x, vUV.y);   // vUV.y = 0 at the bottom
-  float gainH = mix(uGain.z, uGain.w, vUV.x);
-  vec3 c = texture(uScene, vUV).rgb * uBrightness * gainV * gainH;
+  float gainV = mix(uGain.y, uGain.x, uv.y);    // uv.y = 0 at the bottom
+  float gainH = mix(uGain.z, uGain.w, uv.x);
+  vec3 c = texture(uScene, uv).rgb * uBrightness * gainV * gainH;
   c = pow(max(c, vec3(0.0)), vec3(1.0 / uGamma));
   outColor = vec4(c * f, 1.0);
 }`;
@@ -204,7 +207,7 @@ export class Renderer {
     canvas.addEventListener('webglcontextrestored', () => { this.lost = true; }); // objects are gone; the page reloads itself
     this.surf = program(gl, SURF_VS, SURF_FS, ['uTex', 'uHasTex', 'uRect', 'uFeather', 'uOpacity', 'uMode', 'uColor', 'uGridDiv', 'uMaskN', 'uMask', 'uMaskFeather', 'uMaskInvert', 'uCut', 'uHasCut', 'uCutExpand', 'uRes',
       'uSphere', 'uRay', 'uCen', 'uRot', 'uProj', 'uNProj', 'uSelf', 'uBlendPow', 'uBlendGamma']);
-    this.comp = program(gl, COMP_VS, COMP_FS, ['uScene', 'uRes', 'uBlendW', 'uBlendG', 'uBrightness', 'uGamma', 'uGain']);
+    this.comp = program(gl, COMP_VS, COMP_FS, ['uScene', 'uRes', 'uBlendW', 'uBlendG', 'uBrightness', 'uGamma', 'uGain', 'uFlip']);
 
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
@@ -382,6 +385,8 @@ export class Renderer {
     gl.uniform1f(c.uGamma, output.gamma);
     const rp = output.ramp || { top: 1, bottom: 1, left: 1, right: 1 };
     gl.uniform4f(c.uGain, rp.top, rp.bottom, rp.left, rp.right);
+    const fl = output.flip || 'none';
+    gl.uniform2f(c.uFlip, fl.startsWith('mirror') ? -1 : 1, fl.endsWith('rot180') ? -1 : 1);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     if (rect) gl.disable(gl.SCISSOR_TEST);
   }

@@ -10,7 +10,7 @@ export function silhouettePng(output, state) {
   const r = new Renderer(canvas);
   const flat = {
     ...output,
-    brightness: 1, gamma: 1, ramp: { top: 1, bottom: 1, left: 1, right: 1 },
+    brightness: 1, gamma: 1, ramp: { top: 1, bottom: 1, left: 1, right: 1 }, flip: 'none',   // the stencil is the upright frame
     blend: { left: { w: 0, g: 1 }, right: { w: 0, g: 1 }, top: { w: 0, g: 1 }, bottom: { w: 0, g: 1 } },
     surfaces: output.surfaces.map(s => ({
       ...s, fill: 'color', color: '#ffffff', opacity: 1,
