@@ -234,7 +234,7 @@ const server = http.createServer(async (req, res) => {
   catch { try { browser = await pw.chromium.launch(launch); } catch (e) { die('could not start Chrome: ' + e.message); } }
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.on('pageerror', e => fail('page error: ' + e.message));
-  page.on('console', msg => { if (msg.type() === 'error' && !/favicon/.test(msg.text())) console.log('  page:', msg.text()); });
+  page.on('console', msg => { if (msg.type() === 'error' && !/favicon|404/.test(msg.text())) console.log('  page:', msg.text()); });   // the 404 is Chrome asking for a favicon
   console.log(opts.preview ? 'rendering preview frames…' : 'rendering…');
   await page.goto(`http://127.0.0.1:${port}/bake.html?port=${port}`);
   let ok = true;
