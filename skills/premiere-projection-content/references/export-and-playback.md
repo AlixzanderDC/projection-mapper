@@ -1,0 +1,76 @@
+# Export and playback — H.264 for USB projector players
+
+Compiled 2026-10-29. Sources: Adobe export references (helpx, snapshots 2025–2026), Wikipedia's H.264 level table, Microsoft's file-system comparison, Epson / BenQ / Optoma / LG / ViewSonic support pages, the mapper's `README.md`. **[unverified]** = not confirmed from a primary source; **[derived]** = our rule.
+
+---
+
+## 1. Targets for this show
+
+| Projector | File | Why |
+|---|---|---|
+| 1280 × 768 unit | 1280 × 768, 30 fps, H.264 High, Level 4.1, 8–10 Mbps VBR 2-pass | 3,840 macroblocks/frame; trivially inside Level 4.1 |
+| 1920 × 1080 unit | 1920 × 1080, 30 fps, H.264 High, Level 4.1, 10–14 Mbps VBR 2-pass | 8,160 MB/frame ≤ 8,192 and 244,800 MB/s ≤ 245,760: 1080p30 is the **top** of Level 4.1 |
+| Moon strip (mapper / bake) | 2048 × 1024, 30 fps, same codec | 8,192 MB/frame = exactly the Level 4.1 frame-size limit at ≤30 fps; fine for the mapper and `bake.js` on a PC, but a 2048-wide file is **not** for a projector's own player (Epson caps at 1920 × 1200, §4) |
+
+Level 4.1 limits (Wikipedia, "Advanced Video Coding", Levels table, read 2026-10-29, https://en.wikipedia.org/wiki/Advanced_Video_Coding): max 245,760 macroblocks/s, max 8,192 macroblocks/frame, 1920×1080 at 30.1 fps, 1280×720 at 68.3 fps; max video bitrate 50,000 kbit/s Baseline/Main, ×1.25 = 62,500 kbit/s for High. Levels 4 (20,000 kbit/s) and 4.2 (same as 4.1 but 2× MB/s: 1080p64) bracket it. A VBR *Maximum Bitrate* of ≤20 Mbps therefore sits far under the level cap; the cap that actually bites on cheap players is their decoder/USB throughput, not the spec [derived].
+
+Bitrate rules of thumb [derived]: 30 fps content with large flat areas and slow motion (most mapped content) looks clean at 0.1 bits/pixel/frame → 1080p30 ≈ 6 Mbps; use **Target 10 Mbps / Maximum 16 Mbps** for 1080p and **Target 8 / Max 12** for 1280×768 as safe defaults; go to Target 14–16 for noisy particles, fire and fast motion. Above ~20 Mbps some USB players stutter even though the file is legal **[unverified; vendor pages list profiles, not throughput]**.
+
+---
+
+## 2. Premiere export dialog, option by option
+
+`File > Export > Media` (Ctrl+M / Cmd+M). "Choose a format. H.264 is recommended for most online videos… Use the Match Source – Adaptive High Bitrate preset for a quick and high-quality export." Buttons: **Export** (render in Premiere) or **Send to Media Encoder**. — https://helpx.adobe.com/premiere/desktop/render-and-export/export-files/export-video.html (Sep 2026)
+
+Settings (export settings reference, https://helpx.adobe.com/premiere/desktop/render-and-export/export-files/overview-of-export-settings.html, Aug 18 2026; encoding reference https://helpx.adobe.com/premiere-pro/using/encoding-settings.html, May 24 2023; Media Encoder reference https://helpx.adobe.com/media-encoder/using/export-settings-reference.html, Mar 27 2026):
+
+- **Match Source** — "Automatically match export settings to the source's settings." Fine when the sequence is already projector-sized, square-pixel, progressive; but **untick the Match Source boxes for Profile and Level and set them by hand**, because Match Source "choose[s] the best setting based on the properties of your source media" (encoding reference) and your *sources* may be 4K ProRes or 60 fps stock. Also check *Field Order* reads **Progressive** and *Aspect* reads **Square Pixels (1.0)** — "Specifies whether the exported file has progressive frames or frames made up of interlaced fields"; "Aspect: The pixel aspect ratio of the video."
+- **Frame Size** / **Frame Rate**: type the projector's native size and 30. If they differ from the sequence, "Use the Preview panel to… adjust how it fits the frame if the export size differs" — never let it letterbox/scale a mapped file (export-video page); match the sequence instead.
+- **Performance**: "(H.264 and HEVC only) – Hardware Accelerated is the default choice… If your system does not support certain export settings, the Performance menu switches automatically to Software Only." Hardware encoding "is generally limited to CBR and 1 pass VBR. Generally, data rates need to be slightly higher to ensure quality" — https://helpx.adobe.com/uk/premiere-pro/using/bestpractices-export.html (Feb 13 2024). For the final file choose **Software Only + VBR 2 pass**; it is slower and that does not matter here [derived].
+- **Profile**: "Baseline – The simplest… Main – … SD broadcasting. High – A widely supported profile used by most HD devices. High10 – … 10 bit decoding." Choose **High**; never High10 (10-bit files are rejected by most hardware players **[unverified]**).
+- **Level**: "Limits the range of choices available for Frame Size, Frame Rate, Field Order, Aspect, bit rate, chroma, and other compression settings." Choose **4.1**.
+- **Export Color Space**: "Defaults to Rec. 709 for most presets." Leave it.
+- **Bitrate Encoding**: CBR "can shorten export times but may impact the quality for more complex frames"; VBR "Dynamically adjusts the data rate…"; "2 Pass encoding makes two passes through the file… often produces higher-quality output." Adobe's own generalisation: "A CBR file can play back more reliably over a wider range of systems because a fixed data rate is less demanding on media players." → Default **VBR, 2 pass**; if a player stutters on a VBR file, re-export **CBR** at the former target [derived].
+- **Target Bitrate [Mbps]** / **Maximum Bitrate [Mbps]** as in §1.
+- **Key Frame Distance**: "Enable this option to specify how often keyframes (aka I-frames) are inserted… a lower keyframe value results in a higher-quality video but may increase file size. When disabled, Premiere chooses the appropriate keyframe distance based on the export format and frame rate." Leave disabled, or set 30 (one per second) for cheap players that seek badly [derived]. Older Adobe manuals describe the same control; forum advice of 12–15 frames is for scrubbing media servers, not needed here (creativecow.net, search snippet) **[unverified]**.
+- **Render at Maximum Depth**: "Renders effects using the highest bit depth supported by the current format (in most cases, 32-bit float processing)." Tick it (gradients and feathers band less) [derived].
+- **Use Maximum Render Quality**: "Helps preserve details and avoid aliasing when scaling to a frame size different from your source media"; AME page adds: "Systems with supported GPU hardware automatically use maximum render quality if Renderer is set to Metal, CUDA, or OpenCL. Leave this setting deselected in those scenarios… only useful when exporting to a different frame size." The sequence-settings page warns it "often makes highly compressed image formats… look worse because of sharpening." Since the export size equals the sequence size, **leave it off**.
+- **Time Interpolation**: "comes into play when the frame rate of your exported media is different from your source media" — *Frame Sampling* ("may produce stuttered or jittery playback"), *Frame Blending*, *Optical Flow* ("artifacts may be introduced"). Export at the sequence's 30 fps so it never engages; conform 60 fps *sources* at the clip level (Modify > Interpret Footage) or just let Premiere drop frames inside the 30 fps sequence rather than at export [derived].
+- **Render Alpha Channel Only** / **Transparency**: not for H.264 here.
+- **VR Video – Video Is VR**: metadata for VR players; leave unticked even for the 2:1 moon strip (mapper ignores it).
+- **Audio**: H.264 offers AAC; choose **AAC, stereo, 48 kHz** if the file carries sound, or delete the audio track entirely. Epson's player accepts "MPEG-2 AAC-LC, MPEG-4 AAC-LC, or LPCM", 44.1/48 kHz for AAC, "8-bit or 16-bit and up to 2 channels" (§4). An audio-less file is the safest; some players refuse files with no audio track **[unverified; not found in vendor docs]** — if yours does, add a silent AAC track.
+- **Media Encoder queue**: `File > Export > Send to Adobe Media Encoder` or the *Send to Media Encoder* button; "The H.264 Match Source - Adaptive High Bitrate export preset is applied by default when sending jobs to the Media Encoder queue. However, if the sequence or clip has been previously opened in Export mode or Quick Export, the last-used export setting is applied instead." — https://helpx.adobe.com/premiere/desktop/render-and-export/export-files/export-directly-to-adobe-media-encoder.html (Oct 2026). Save a preset ("Projector 1080p30 USB", "Projector 1280x768 USB") so the queue never silently falls back to Adaptive.
+- Media Encoder's *Source Scaling* has "Change Output Size To Match Source", which "adjusts the output resolution to match the source dimensions, preventing scaling altogether" (AME reference). Match Source presets exist as "Match Source - High bit rate" (HD default) and "Medium bit rate" (SD).
+
+---
+
+## 3. Why H.264 and not Hap / DXV / ProRes
+
+- Hap and DXV are **not Premiere-native**. Hap: "community-supplied Hap and Hap Q exporter plugin for Adobe CC 2019 and Adobe CC 2020… available as the 'HAP Video' format… exported into .mov files"; AE gets "Quicktime HAP Format" — https://github.com/disguise-one/hap-encoder-adobe-cc (Mar 2026 snapshot of the README; tested versions have not been updated). 2025 Adobe Community threads report no free Hap plugin for Apple-silicon Adobe apps (search snippet) **[unverified]**. DXV: Resolume ships exporter plugins "for After Effects, Media Encoder and Premiere" after Adobe dropped third-party QuickTime codecs — https://resolume.com/support/en/dxv-export-in-adobe-cc-2018 (Jan 2026 snapshot).
+- Those codecs exist for **media servers** that scrub, speed-change and layer many files (see `projection-show-workflow`). A projector's USB player and the mapper's `<video>` element play forward at 1× from start to end; the only thing that matters is a decoder-friendly long-GOP file. H.264 High 4.1 is what every player's spec sheet lists (§4). Hap/DXV `.mov` files would not play from a projector at all.
+- Keep a mezzanine: export the master as **QuickTime ProRes 422** (or the per-sequence preview codec) once, and encode H.264 deliveries from that, so re-exports after a player rejects a file do not re-render effects [derived].
+
+---
+
+## 4. What projector players actually accept (vendor pages)
+
+- **Epson PC Free** (Epson Pro EX11000 FAQ, published Jun 1 2023, https://epson.com/faq/SPT_V11HA72220~faq-0000886-ex11000): "For best results, place your files on media that is formatted in FAT16/32." H.264/H.265 `.mp4`/`.mov` must not be "Larger than 2GB; Above 1920 × 1200 resolution; A color format other than YUV420; Saved with a movie codec other than H.264/MPEG-4 AVC (Baseline Profile, Main Profile, High Profile) or H.265…; Saved with a frame rate higher than 30 fps; Saved with an audio codec other than MPEG-2 AAC-LC, MPEG-4 AAC-LC, or LPCM; … audio other than 8-bit or 16-bit and up to 2 channels; A format other than single slice structure." Motion-JPEG AVI is also accepted but capped at 1280 × 720 and 2 GB. Playlists via "Epson Projector Content Manager". **Note the 2 GB cap on that model — half the FAT32 limit — and "single slice"**: hardware encoders may write multi-slice streams **[unverified]**; if an Epson refuses a file, re-export with *Performance: Software Only* [derived].
+- **BenQ** (FAQ, 2022, https://www.benq.com/en-me/support/downloads-faq/faq/product/specification/projector-faq-kn-00079.html): USB drives "at or below 128GB and 1080p@60Hz content. The drive's format needs to be NTFS, FAT, or FAT32"; video "MPEG-4 (3gp, mp4)…". A different BenQ FAQ (GP100) lists H.264 up to Level 5.1 (search snippet) **[unverified]**.
+- **Optoma** manuals: "USB format is only supported on FAT and FAT32" (manualslib, search snippet) **[unverified]**. **LG** PF-series manual: "Only H.264 / AVC profile level 4.1 and lower is supported" (manualslib, search snippet) **[unverified]**. **Panasonic** USB media player guide: Level 4.2 or less (search snippet) **[unverified]**.
+- **FAT32 maximum file size: 4 GiB** (Microsoft, "File system functionality comparison", https://learn.microsoft.com/en-us/windows/win32/fileio/filesystem-functionality-comparison, Oct 2026 snapshot). exFAT and NTFS have no practical limit, but Epson wants FAT and Optoma only FAT — so **plan for ≤ 2 GB per file**: at 10 Mbps video + 0.2 Mbps audio that is about 26 minutes; at 14 Mbps about 19 minutes [derived: 2 GB × 8 ÷ bitrate].
+- Always confirm the *specific* model's manual: the limits above differ between brands and even generations.
+
+---
+
+## 5. Loops on a player
+
+- Players loop by *restarting the file* or by stepping to the next file; a gap is normal. ViewSonic M1-series (sold by AtmosFX): "When playing decorations from a USB drive or SD card, you may notice a 'gap' in between videos. A short, single second black frame may appear when one video ends and the next videos starts… if you use decorations that always reset to black at the beginning and end, then you won't notice anything at all." The projector "automatically loop[s] all of the videos in a single folder" in alpha-numeric order; prefix names with `01-`, `02-` to order them. — https://support.atmosfx.com/article/403-how-can-i-play-and-loop-my-decorations-with-the-atmoskit-plus (Apr 2026 snapshot). The mapper's `bake.js --loops N` exists for the same reason ("so the player's restart gap comes rarely", `README.md`).
+- So, for a projector player [derived]: (1) make the design loop seamlessly **inside** the file (`premiere-workflow.md` §7, `after-effects.md` §5); (2) in Premiere, nest the finished loop and lay copies back-to-back until the file is as long as the 2 GB / 4 GB budget allows (e.g. 20 × 1 min), export once; (3) if the player still shows a flash at restart, start and end the file on a frame that is black or very dark (a 10-frame fade), which hides the gap; (4) one file per folder, so the player cannot wander into another file.
+- Test on the real player before the show: loop count, restart gap, bitrate stutter, colour range (§6), and whether the player scales (picture zoom/overscan **off**, output at native resolution — `README.md`, "Bake a projector's picture").
+
+---
+
+## 6. Levels, range and "grey instead of black"
+
+- Projected black is the projector's black level, not darkness; that is physics, not a file problem (`projection-show-workflow` §5: "Black is not off"). But *grey* black that was black in Premiere means a range mismatch: the player or projector treats the limited-range (16–235) H.264 as full range or vice versa. Check in Premiere with `Window > Lumetri Scopes` → Waveform (8-bit scale) that your black sits at 0 and white at 255 / 100 IRE; then on the player set the HDMI/colour range so that black is black ("HDMI range so that black is black", `README.md`) **[derived + README]**. Premiere's *Export Color Space* stays Rec. 709; there is no "full range" switch to flip for H.264 in the export dialog **[unverified: the dialog's range handling is not documented on the pages read]**.
+- Washed-out in QuickTime/macOS is a *viewer gamma* phenomenon ("macOS uses a gamma curve of 1.96… Premiere Pro uses the 2.4 broadcast standard"), not an export error — https://helpx.adobe.com/premiere-pro/using/why-do-my-premiere-pro-exports-look-washed-out.html (Apr 1 2025). Judge files on the projector, not on a laptop.
