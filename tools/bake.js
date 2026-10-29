@@ -230,8 +230,9 @@ const server = http.createServer(async (req, res) => {
   catch { die('Playwright not found. Install it next to the repo (npm install playwright) or set PLAYWRIGHT_PATH to a node_modules/playwright folder.'); }
   let browser;
   const launch = { headless: !opts.show, args: ['--no-sandbox', '--ignore-gpu-blocklist'] };
-  try { browser = await pw.chromium.launch({ ...launch, channel: 'chrome' }); }
-  catch { try { browser = await pw.chromium.launch(launch); } catch (e) { die('could not start Chrome: ' + e.message); } }
+  // Edge first on Windows (always present, separate from the Chrome the mapper runs in); BROWSER=chrome|msedge|chromium overrides.
+  const channels = process.env.BROWSER ? [process.env.BROWSER] : (process.platform === 'win32' ? ['msedge', 'chrome', 'chromium'] : ['chrome', 'chromium']);
+  for (const ch of channels) { try { browser = await pw.chromium.launch(ch === 'chromium' ? launch : { ...launch, channel: ch }); break; } catch (e) { if (ch === channels[channels.length - 1]) die('could not start a browser: ' + e.message); } }
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.on('pageerror', e => fail('page error: ' + e.message));
   page.on('console', msg => { if (msg.type() === 'error' && !/favicon|404/.test(msg.text())) console.log('  page:', msg.text()); });   // the 404 is Chrome asking for a favicon
