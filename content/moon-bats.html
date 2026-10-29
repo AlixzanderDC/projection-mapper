@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moon: bats and the signal</title>
+<style>
+  html, body { margin: 0; background: #111; color: #aaa; font: 13px system-ui; }
+  #c { display: block; margin: 0 auto; max-height: 100vh; }
+  #ui { position: fixed; left: 8px; top: 8px; display: flex; gap: 8px; align-items: center; }
+  #ui input { width: 40vw; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1080"></canvas>
+<div id="ui"><button id="play">pause</button><input id="scrub" type="range" min="0" max="90" step="0.033" value="0"><span id="time">0.0 s</span></div>
+<script>
+// Square content for the moon mapped as a flat surface with a circle mask (the disc is inscribed in the frame):
+// a pale moon face with drifting clouds, bats crossing in flocks, and the bat signal switching on twice a loop.
+// Every frame is a pure function of t, so it loops without a seam and renders headlessly with render-frames.js.
+const W = 1080, H = 1080, CX = W / 2, CY = H / 2, R = W / 2;
+const DURATION = 90, FPS = 30;
+window.DURATION = DURATION; window.FPS = FPS;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const mod = (a, n) => ((a % n) + n) % n;
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+// ---------------------------------------------------------------- moon face (static)
+const face = document.createElement('canvas'); face.width = W; face.height = H;
+{
+  const g = face.getContext('2d');
+  const grad = g.createRadialGradient(CX - 120, CY - 140, 60, CX, CY, R);
+  grad.addColorStop(0, '#fbf8ee'); grad.addColorStop(0.6, '#e4e0d2'); grad.addColorStop(0.9, '#b9b5a7'); grad.addColorStop(1, '#6e6b62');
+  g.fillStyle = grad; g.beginPath(); g.arc(CX, CY, R, 0, TAU); g.fill();   // outside the disc stays black
+  const r = rng(7);
+  // maria: large soft dark patches
+  for (let i = 0; i < 7; i++) {
+    const a = r() * TAU, d = r() * R * 0.6, x = CX + Math.cos(a) * d, y = CY + Math.sin(a) * d, rr = 90 + r() * 170;
+    const m = g.createRadialGradient(x, y, 0, x, y, rr);
+    m.addColorStop(0, 'rgba(70,70,80,0.16)'); m.addColorStop(1, 'rgba(70,70,80,0)');
+    g.fillStyle = m; g.beginPath(); g.ellipse(x, y, rr, rr * (0.6 + r() * 0.5), r() * TAU, 0, TAU); g.fill();
+  }
+  // craters: shadowed bowl + bright rim on the sunward side
+  for (let i = 0; i < 34; i++) {
+    const a = r() * TAU, d = Math.sqrt(r()) * R * 0.92, x = CX + Math.cos(a) * d, y = CY + Math.sin(a) * d, rr = 8 + r() * r() * 44;
+    const bowl = g.createRadialGradient(x + rr * 0.25, y + rr * 0.25, 0, x, y, rr);
+    bowl.addColorStop(0, 'rgba(60,60,70,0.13)'); bowl.addColorStop(0.8, 'rgba(60,60,70,0.1)'); bowl.addColorStop(1, 'rgba(60,60,70,0)');
+    g.fillStyle = bowl; g.beginPath(); g.arc(x, y, rr, 0, TAU); g.fill();
+    g.strokeStyle = 'rgba(255,255,248,0.22)'; g.lineWidth = Math.max(1, rr * 0.07);
+    g.beginPath(); g.arc(x, y, rr * 0.9, Math.PI * 1.0, Math.PI * 1.8); g.stroke();
+  }
+}
+
+// ---------------------------------------------------------------- clouds (static strips, scrolled)
+function cloudStrip(seed, w, h, blobs, alpha) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'), r = rng(seed);
+  for (let i = 0; i < blobs; i++) {
+    const x = r() * w, y = h * (0.1 + r() * 0.8), rx = 120 + r() * 320, ry = rx * (0.1 + r() * 0.2);
+    const m = g.createRadialGradient(x, y, 0, x, y, rx);
+    m.addColorStop(0, `rgba(8,8,16,${alpha})`); m.addColorStop(0.5, `rgba(8,8,16,${alpha * 0.45})`); m.addColorStop(1, 'rgba(8,8,16,0)');
+    g.fillStyle = m; g.save(); g.translate(x, y); g.scale(1, ry / rx); g.translate(-x, -y);
+    g.beginPath(); g.arc(x, y, rx, 0, TAU); g.fill(); g.restore();
+    // wrap-around copies so the strip tiles seamlessly
+    for (const dx of [-w, w]) { g.save(); g.translate(x + dx, y); g.scale(1, ry / rx); g.translate(-x, -y); g.fillStyle = m; g.beginPath(); g.arc(x, y, rx, 0, TAU); g.fill(); g.restore(); }
+  }
+  return c;
+}
+const CLOUDS = [
+  { strip: cloudStrip(11, 2600, H, 30, 0.34), laps: 1, y: 0 },
+  { strip: cloudStrip(23, 3200, H, 40, 0.26), laps: 2, y: 0 },
+  { strip: cloudStrip(37, 2200, H, 22, 0.18), laps: -1, y: 0 },
+];
+
+// ---------------------------------------------------------------- bats
+function batPath(g, s, flap) {
+  // Silhouette seen from below, head at −y, wingspan 2 (x −1..1); `flap` −1..1 raises/lowers the wings.
+  const wy = -0.3 * flap;
+  g.scale(s * 0.5, s * 0.5);
+  g.beginPath();
+  g.moveTo(0, -0.2);                                                   // head
+  g.lineTo(-0.08, -0.4); g.lineTo(-0.04, -0.22); g.lineTo(0.04, -0.22); g.lineTo(0.08, -0.4); g.lineTo(0, -0.2);
+  g.moveTo(0.04, -0.22);
+  g.quadraticCurveTo(0.45, -0.42 + wy * 0.5, 1.0, wy - 0.15);          // leading edge, swept forward, to the tip
+  g.quadraticCurveTo(0.9, wy * 0.7 - 0.02, 0.74, wy * 0.55 + 0.06);    // three concave scallops back along the trailing edge
+  g.quadraticCurveTo(0.6, wy * 0.42 - 0.06, 0.46, wy * 0.3 + 0.16);
+  g.quadraticCurveTo(0.33, wy * 0.18 + 0.0, 0.2, wy * 0.08 + 0.22);
+  g.quadraticCurveTo(0.13, 0.1, 0.06, 0.24);
+  g.lineTo(0.03, 0.36); g.lineTo(0, 0.3); g.lineTo(-0.03, 0.36); g.lineTo(-0.06, 0.24);   // tail
+  g.quadraticCurveTo(-0.13, 0.1, -0.2, wy * 0.08 + 0.22);
+  g.quadraticCurveTo(-0.33, wy * 0.18 + 0.0, -0.46, wy * 0.3 + 0.16);
+  g.quadraticCurveTo(-0.6, wy * 0.42 - 0.06, -0.74, wy * 0.55 + 0.06);
+  g.quadraticCurveTo(-0.9, wy * 0.7 - 0.02, -1.0, wy - 0.15);
+  g.quadraticCurveTo(-0.45, -0.42 + wy * 0.5, -0.04, -0.22);
+  g.closePath();
+}
+const BATS = [];
+{
+  const r = rng(99);
+  const flock = (n, t0, ang, size, dur, spread) => {
+    for (let i = 0; i < n; i++) {
+      const a = ang + (r() - 0.5) * 0.3, d = R * 1.35;
+      const ox = (r() - 0.5) * spread, oy = (r() - 0.5) * spread;
+      BATS.push({
+        t0: mod(t0 + (r() - 0.5) * 1.6, DURATION), dur: dur * (0.9 + r() * 0.2),
+        x0: CX - Math.cos(a) * d + ox, y0: CY - Math.sin(a) * d + oy, x1: CX + Math.cos(a) * d + ox, y1: CY + Math.sin(a) * d + oy,
+        size: size * (0.75 + r() * 0.5), flapHz: 5 + r() * 4, phase: r() * TAU, bob: 10 + r() * 30, bobHz: 0.4 + r() * 0.6,
+      });
+    }
+  };
+  flock(5, 3, 0.1, 130, 9, 260);
+  flock(3, 9, -0.6, 160, 8, 220);
+  flock(1, 14, 0.35, 420, 5, 0);          // one big close pass
+  flock(7, 24, 2.9, 110, 11, 380);          // the other way, during the first signal
+  flock(4, 33, 0.9, 150, 9, 240);
+  flock(2, 40, -2.6, 300, 6, 200);
+  flock(6, 47, 0.2, 120, 10, 360);
+  flock(1, 55, -0.2, 460, 5, 0);
+  flock(5, 66, 3.3, 135, 9, 280);           // during the second signal
+  flock(3, 74, 0.7, 150, 8, 220);
+  flock(8, 81, -0.9, 100, 10, 440);
+}
+
+// ---------------------------------------------------------------- the signal
+const SIGNALS = [{ t0: 18, len: 13 }, { t0: 61, len: 14 }];
+function signalLevel(t) {
+  let v = 0;
+  for (const s of SIGNALS) {
+    const u = t - s.t0;
+    if (u < 0 || u > s.len) continue;
+    signalLevel.sweep = smooth(u / 1.6);   // 0 = beam still arriving from the lower left, 1 = on target
+    const on = smooth(u / 1.4), off = smooth((s.len - u) / 1.8);
+    const flick = 0.93 + 0.05 * Math.sin(u * 37) * Math.sin(u * 11.3) + 0.02 * Math.sin(u * 91);
+    v = Math.max(v, Math.min(on, off) * (u < 1.4 ? (0.6 + 0.4 * Math.abs(Math.sin(u * 23))) : flick));
+  }
+  return v;
+}
+function emblem(g, s) {
+  // A stylised bat for the centre of the signal (symmetric, drawn from the head round the right side).
+  g.beginPath();
+  g.moveTo(0, -0.16);
+  g.lineTo(0.05, -0.3); g.lineTo(0.09, -0.17);               // ear
+  g.quadraticCurveTo(0.3, -0.19, 0.55, -0.26);               // upper wing edge
+  g.quadraticCurveTo(0.9, -0.34, 1.0, -0.12);                // tip
+  g.quadraticCurveTo(0.8, -0.05, 0.72, 0.1);                 // scallops along the trailing edge
+  g.quadraticCurveTo(0.56, 0.02, 0.46, 0.16);
+  g.quadraticCurveTo(0.3, 0.1, 0.2, 0.22);
+  g.quadraticCurveTo(0.1, 0.18, 0.04, 0.32);                 // tail
+  g.lineTo(0, 0.36);
+  g.lineTo(-0.04, 0.32);
+  g.quadraticCurveTo(-0.1, 0.18, -0.2, 0.22);
+  g.quadraticCurveTo(-0.3, 0.1, -0.46, 0.16);
+  g.quadraticCurveTo(-0.56, 0.02, -0.72, 0.1);
+  g.quadraticCurveTo(-0.8, -0.05, -1.0, -0.12);
+  g.quadraticCurveTo(-0.9, -0.34, -0.55, -0.26);
+  g.quadraticCurveTo(-0.3, -0.19, -0.09, -0.17);
+  g.lineTo(-0.05, -0.3); g.lineTo(0, -0.16);
+  g.closePath();
+}
+
+// ---------------------------------------------------------------- frame
+function renderAt(t) {
+  t = mod(t, DURATION);
+  const breathe = 0.96 + 0.04 * Math.sin(t / DURATION * TAU * 3);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = breathe;
+  ctx.drawImage(face, 0, 0);
+  ctx.globalAlpha = 1;
+
+  // clouds
+  for (const c of CLOUDS) {
+    const off = mod(t / DURATION * c.laps * c.strip.width, c.strip.width);
+    ctx.drawImage(c.strip, -off, c.y);
+    ctx.drawImage(c.strip, c.strip.width - off, c.y);
+    if (off > c.strip.width - W) ctx.drawImage(c.strip, -off - c.strip.width, c.y);
+  }
+
+  // the signal: a warm beam spot with the emblem in it, and the rest of the moon dimming a little
+  const sig = signalLevel(t);
+  if (sig > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${0.35 * sig})`; ctx.fillRect(0, 0, W, H);
+    const k = signalLevel.sweep, rr = 360, x = CX - 420 * (1 - k), y = CY - 20 + 520 * (1 - k);
+    const beam = ctx.createRadialGradient(x, y, rr * 0.75, x, y, rr);
+    beam.addColorStop(0, `rgba(255,246,205,${0.98 * sig})`); beam.addColorStop(0.8, `rgba(255,240,190,${0.9 * sig})`); beam.addColorStop(1, 'rgba(255,230,160,0)');
+    ctx.fillStyle = beam; ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.fill();
+    ctx.strokeStyle = `rgba(255,250,230,${0.6 * sig})`; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(x, y, rr * 0.86, 0, TAU); ctx.stroke();
+    // soft spill beyond the spot
+    const spill = ctx.createRadialGradient(x, y, rr * 0.9, x, y, R);
+    spill.addColorStop(0, `rgba(255,236,170,${0.22 * sig})`); spill.addColorStop(1, 'rgba(255,236,170,0)');
+    ctx.fillStyle = spill; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(x, y); ctx.scale(290, 270);
+    ctx.fillStyle = `rgba(0,0,0,${0.97 * Math.min(1, sig * 1.2)})`; emblem(ctx, 1); ctx.fill();
+    ctx.restore();
+  }
+
+  // bats: black silhouettes, flapping, each crossing once per loop
+  ctx.fillStyle = '#000';
+  for (const b of BATS) {
+    const u = mod(t - b.t0, DURATION) / b.dur;
+    if (u >= 1) continue;
+    const e = u * u * (3 - 2 * u) * 0.25 + u * 0.75;                   // slight ease
+    const x = b.x0 + (b.x1 - b.x0) * e, y = b.y0 + (b.y1 - b.y0) * e + Math.sin(t * b.bobHz * TAU + b.phase) * b.bob;
+    const flap = Math.sin(t * b.flapHz * TAU + b.phase);
+    const dir = Math.atan2(b.y1 - b.y0, b.x1 - b.x0);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(dir + Math.PI / 2 + Math.sin(t * b.bobHz * TAU + b.phase) * 0.15);
+    batPath(ctx, b.size, flap); ctx.fill(); ctx.restore();
+  }
+}
+window.renderAt = renderAt;
+window.assetsReady = () => true;
+
+// ---------------------------------------------------------------- preview loop (not used by the headless renderer)
+if (!/[?&]frame=1/.test(location.search)) {
+  const play = document.getElementById('play'), scrub = document.getElementById('scrub'), time = document.getElementById('time');
+  let playing = true, start = performance.now(), base = 0;
+  play.onclick = () => { if (playing) { base = cur(); } else { start = performance.now(); } playing = !playing; play.textContent = playing ? 'pause' : 'play'; };
+  scrub.oninput = () => { base = Number(scrub.value); start = performance.now(); };
+  const cur = () => mod(base + (playing ? (performance.now() - start) / 1000 : 0), DURATION);
+  (function loop() { const t = cur(); renderAt(t); time.textContent = t.toFixed(1) + ' s'; if (document.activeElement !== scrub) scrub.value = t; requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>
