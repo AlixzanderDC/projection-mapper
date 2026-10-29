@@ -77,6 +77,7 @@ Once a shape is mapped, you usually want video made for it rather than a rectang
 
 - **Shape PNG** — white where the projector lights, black elsewhere, pixel-exact. Use it as a track matte or mask layer in Premiere, After Effects, Resolve or whatever you edit in.
 - **Guide SVG** — outlines, warp grid lines, control point numbers and masks as vector paths. Drop it on a layer above your composition to see where everything lands.
+- **Matte per surface (zip)** — one white-on-black PNG per visible surface, named after the surface, so each shape can be its own track matte or layer.
 
 Make the video at that size, put it in `media/`, add a surface, press **Full frame** (the whole projector, 1:1), and pick the video as its source. Nothing else to warp: the content already has the shape. Keep the original mapped surfaces in the show if you want to switch between warped rectangles and purpose-made content; just toggle **Visible**.
 

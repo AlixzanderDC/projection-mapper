@@ -3,7 +3,7 @@ import { evalMesh, outline, surfaceFn } from './core.js';
 import { Renderer } from './render.js';
 
 // White-on-black PNG of everything the projector lights (hard edges, no blend).
-export function silhouettePng(output, state) {
+export function silhouettePng(output, state, only = null) {   // only: a surface id to render on its own
   const W = output.width, H = output.height;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
@@ -14,6 +14,7 @@ export function silhouettePng(output, state) {
     blend: { left: { w: 0, g: 1 }, right: { w: 0, g: 1 }, top: { w: 0, g: 1 }, bottom: { w: 0, g: 1 } },
     surfaces: output.surfaces.map(s => ({
       ...s, fill: 'color', color: '#ffffff', opacity: 1,
+      visible: only ? s.id === only : s.visible,
       feather: { l: 0, r: 0, t: 0, b: 0 },
       mask: s.mask ? { ...s.mask, feather: 0 } : s.mask,
     })),
@@ -93,4 +94,36 @@ export function download(blob, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// One matte per visible surface, zipped (store only, no compression: PNGs are already compressed).
+export async function surfaceMattesZip(output, state, prefix) {
+  const files = [];
+  const seen = new Map();
+  for (const sf of output.surfaces) {
+    if (!sf.visible) continue;
+    let name = (sf.name || 'surface').replace(/[^\w.-]+/g, '_');
+    const n = (seen.get(name) || 0) + 1; seen.set(name, n); if (n > 1) name += `_${n}`;
+    const blob = await silhouettePng(output, state, sf.id);
+    files.push({ name: `${prefix}_${name}.png`, data: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  return zipStore(files);
+}
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipStore(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  const u16 = v => [v & 255, (v >>> 8) & 255], u32 = v => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+  const now = new Date(), dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1), dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  for (const f of files) {
+    const name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+    const head = new Uint8Array([0x50, 0x4b, 0x03, 0x04, ...u16(20), ...u16(0x800), ...u16(0), ...u16(dosTime), ...u16(dosDate), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0)]);
+    parts.push(head, name, f.data);
+    central.push(new Uint8Array([0x50, 0x4b, 0x01, 0x02, ...u16(20), ...u16(20), ...u16(0x800), ...u16(0), ...u16(dosTime), ...u16(dosDate), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), name);
+    offset += head.length + name.length + size;
+  }
+  const cdStart = offset, cdSize = central.reduce((a, c) => a + c.length, 0);
+  const end = new Uint8Array([0x50, 0x4b, 0x05, 0x06, ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(cdStart), ...u16(0)]);
+  return new Blob([...parts, ...central, end], { type: 'application/zip' });
 }

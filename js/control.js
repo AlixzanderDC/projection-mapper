@@ -4,7 +4,7 @@ import { Renderer, drawOverlay } from './render.js';
 import { MediaProvider } from './media.js';
 import { Editor } from './editor.js';
 import { CameraPanel } from './camera.js';
-import { silhouettePng, guideSvg, download } from './export.js';
+import { silhouettePng, guideSvg, surfaceMattesZip, download } from './export.js';
 
 const $ = s => document.querySelector(s);
 const bc = new BroadcastChannel(C.CHANNEL);
@@ -482,8 +482,9 @@ function outputInspector(o) {
   const safe = () => (o.name || 'projector').replace(/[^\w.-]+/g, '_');
   box.append(el('div', { class: 'row wrap' },
     btn('Shape PNG', async () => { try { download(await silhouettePng(o, state), `${safe()}_${o.width}x${o.height}_shape.png`); } catch (e) { toast('Export failed: ' + e.message); } }),
-    btn('Guide SVG', () => { try { download(new Blob([guideSvg(o, state)], { type: 'image/svg+xml' }), `${safe()}_${o.width}x${o.height}_guide.svg`); } catch (e) { toast('Export failed: ' + e.message); } })));
-  box.append(el('p', { class: 'hint', text: 'Shape PNG = white on black, pixel-exact: use it as a track matte or mask layer. Guide SVG = outlines, warp grid lines and point numbers as vectors: lay it over your composition.' }));
+    btn('Guide SVG', () => { try { download(new Blob([guideSvg(o, state)], { type: 'image/svg+xml' }), `${safe()}_${o.width}x${o.height}_guide.svg`); } catch (e) { toast('Export failed: ' + e.message); } }),
+    btn('Matte per surface (zip)', async () => { try { download(await surfaceMattesZip(o, state, `${safe()}_${o.width}x${o.height}`), `${safe()}_${o.width}x${o.height}_mattes.zip`); } catch (e) { toast('Export failed: ' + e.message); } })));
+  box.append(el('p', { class: 'hint', text: 'Shape PNG = white on black, pixel-exact: use it as a track matte or mask layer. Guide SVG = outlines, warp grid lines and point numbers as vectors: lay it over your composition. Matte per surface = one PNG for each visible surface, named after it, so each shape can be its own layer in After Effects or Premiere.' }));
 
   box.append(el('h3', { text: 'Surfaces' }));
   box.append(el('div', { class: 'row' }, btn('Add surface', () => addSurface(o), 'primary')));
