@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cryo wing: the cell and the wall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Share+Tech+Mono&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: #111; color: #aaa; font: 13px system-ui; }
+  #c { display: block; margin: 0 auto; max-width: 100vw; max-height: 100vh; }
+  #ui { position: fixed; left: 8px; top: 8px; display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,0.5); padding: 4px 8px; }
+  #ui input { width: 50vw; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<div id="ui"><button id="play">pause</button><input id="scrub" type="range" min="0" max="320" step="0.033" value="0"><span id="time">0.0 s</span><span id="scene"></span></div>
+<script>
+// Full-frame content (1920×1080, shown on a "Full frame" surface) for the cryo-wing projector:
+// a cell door with its frame and side walls at the bottom of the frame, and a long wall above.
+// The shapes come from shows/Cryo_Wall.pmap.json (projector 1); everything outside them stays black.
+// Scenes, in one 320 s loop:  status board (Arkham alerts) → containment failure and frost creeping
+// from the door to the frame, the sides and up the wall → lockdown → power failure → fear-toxin leak.
+const W = 1920, H = 1080;
+const DURATION = 320, FPS = 30;
+window.DURATION = DURATION; window.FPS = FPS;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const mod = (a, n) => ((a % n) + n) % n;
+const lerp = (a, b, t) => a + (b - a) * t;
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+// ---------------------------------------------------------------- geometry (projector pixels, from the show file)
+const P = (x, y) => ({ x: x * W, y: y * H });
+const DOOR = [P(0.465, 0.573), P(0.545, 0.571), P(0.548, 0.966), P(0.464, 0.967)];
+const FRAME = [P(0.429, 0.510), P(0.581, 0.510), P(0.584, 0.966), P(0.427, 0.967)];
+const SIDES = [P(0.383, 0.516), P(0.655, 0.505), P(0.659, 0.935), P(0.397, 0.933)];
+const WALL = [P(-0.003, 0.171), P(0.948, 0.169), P(0.955, 0.501), P(-0.123, 0.526)];
+const WALL_DOWN = [WALL[0], WALL[1], { x: WALL[2].x, y: WALL[2].y + 30 }, { x: WALL[3].x, y: WALL[3].y + 30 }];
+const bbox = poly => { const xs = poly.map(p => p.x), ys = poly.map(p => p.y); return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }; };
+const DB = bbox(DOOR), FB = bbox(FRAME), SB = bbox(SIDES), WB = { x: 0, y: 183, w: 1830, h: 360 };   // wall box clipped to the frame
+const DOOR_CX = (DB.x + DB.x + DB.w) / 2;
+function pathOf(g, poly) { g.beginPath(); poly.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); }
+function clipTo(g, polys, holes = []) {
+  g.beginPath();
+  for (const poly of polys) { poly.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); }
+  for (const poly of holes) { poly.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); }
+  g.clip('evenodd');
+}
+function pip(poly, x, y) { let inside = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside; } return inside; }
+function distEdge(poly, x, y) { let d = 1e9; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const a = poly[i], b = poly[j]; const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy; let t = ((x - a.x) * dx + (y - a.y) * dy) / l2; t = clamp(t, 0, 1); const px = a.x + dx * t - x, py = a.y + dy * t - y; d = Math.min(d, Math.sqrt(px * px + py * py)); } return d; }
+// Which region a point is in: 0 none, 1 door, 2 frame, 3 sides, 4 wall.
+function region(x, y) { if (pip(DOOR, x, y)) return 1; if (pip(FRAME, x, y)) return 2; if (pip(SIDES, x, y)) return 3; if (pip(WALL, x, y)) return 4; return 0; }
+
+// value noise for ragged edges
+const NOISE = (() => { const r = rng(5), g = new Float32Array(64 * 64); for (let i = 0; i < g.length; i++) g[i] = r(); return (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), fx = smooth(x - xi), fy = smooth(y - yi); const v = (a, b) => g[((b & 63) << 6) | (a & 63)]; return lerp(lerp(v(xi, yi), v(xi + 1, yi), fx), lerp(v(xi, yi + 1), v(xi + 1, yi + 1), fx), fy); }; })();
+const fbm = (x, y) => (NOISE(x, y) * 0.6 + NOISE(x * 2.1, y * 2.1) * 0.3 + NOISE(x * 4.3, y * 4.3) * 0.1);
+
+// ---------------------------------------------------------------- frost arrival times (seconds into the frost phase, per 4-px cell)
+const CELL = 4, GW = W / CELL, GH = H / CELL;
+const ARRIVE = new Float32Array(GW * GH).fill(1e9);
+const REGION = new Uint8Array(GW * GH);
+{
+  const wallBase = { x: DOOR_CX, y: 548 };          // where the cell meets the wall
+  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+    const x = gx * CELL + CELL / 2, y = gy * CELL + CELL / 2, i = gy * GW + gx;
+    const r = region(x, y); REGION[i] = r;
+    if (!r) continue;
+    const n = (fbm(x / 90, y / 90) - 0.5) * 2;      // −1..1
+    let a;
+    if (r === 1) a = 12 + distEdge(DOOR, x, y) / 9 + n * 1.5;                    // from the door's edges inward
+    else if (r === 2) a = 30 + distEdge(DOOR, x, y) / 7 + n * 2;                 // out across the frame
+    else if (r === 3) a = 44 + distEdge(FRAME, x, y) / 11 + n * 3;              // across the side walls
+    else { const dx = (x - wallBase.x) * 0.55, dy = Math.max(0, wallBase.y - y); a = 60 + Math.sqrt(dx * dx + dy * dy) / 26 + n * 4; }   // up and out across the wall
+    ARRIVE[i] = a;
+  }
+}
+const FROST_END = 108;   // everything is covered by then
+
+// ---------------------------------------------------------------- frost texture (static)
+const frostTex = document.createElement('canvas'); frostTex.width = W; frostTex.height = H;
+{
+  const g = frostTex.getContext('2d'), r = rng(31);
+  g.save(); clipTo(g, [DOOR, FRAME, SIDES, WALL]);
+  g.fillStyle = 'rgba(190,225,255,0.28)'; g.fillRect(0, 0, W, H);
+  const fern = (x, y, ang, len, depth, width) => {
+    if (depth === 0 || len < 3) return;
+    const x2 = x + Math.cos(ang) * len, y2 = y + Math.sin(ang) * len;
+    g.lineWidth = width; g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+    const n = 2 + Math.floor(r() * 3);
+    for (let k = 1; k <= n; k++) {
+      const t = k / (n + 1), bx = x + (x2 - x) * t, by = y + (y2 - y) * t, s = r() < 0.5 ? 1 : -1;
+      fern(bx, by, ang + s * (0.5 + r() * 0.5), len * (0.35 + r() * 0.3), depth - 1, width * 0.65);
+    }
+  };
+  g.strokeStyle = 'rgba(225,242,255,0.9)'; g.lineCap = 'round';
+  for (let i = 0; i < 2600; i++) {
+    const x = r() * W, y = 183 + r() * (H - 183);
+    if (!region(x, y)) continue;
+    fern(x, y, r() * TAU, 14 + r() * 40, 3, 1.6);
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.7)';
+  for (let i = 0; i < 500; i++) { const x = r() * W, y = 183 + r() * (H - 183); if (!region(x, y)) continue; fern(x, y, r() * TAU, 40 + r() * 70, 4, 2.2); }
+  g.fillStyle = 'rgba(255,255,255,0.35)';
+  for (let i = 0; i < 30000; i++) { const x = r() * W, y = 183 + r() * (H - 183); if (!region(x, y)) continue; g.fillRect(x, y, 1.5, 1.5); }
+  g.restore();
+}
+const SPARKS = (() => { const r = rng(77), out = []; while (out.length < 420) { const x = r() * W, y = 183 + r() * (H - 183); if (!region(x, y)) continue; out.push({ x, y, f: 0.5 + r() * 2, ph: r() * TAU, s: 2 + r() * 4 }); } return out; })();
+const maskSmall = document.createElement('canvas'); maskSmall.width = GW; maskSmall.height = GH;
+const rimSmall = document.createElement('canvas'); rimSmall.width = GW; rimSmall.height = GH;
+const maskImg = maskSmall.getContext('2d').createImageData(GW, GH), rimImg = rimSmall.getContext('2d').createImageData(GW, GH);
+const frostLayer = document.createElement('canvas'); frostLayer.width = W; frostLayer.height = H;
+function drawFrost(ft, strength = 1) {
+  // ft: seconds into the frost phase. Reveals the texture where ft > arrival, with a bright rim at the front.
+  const md = maskImg.data, rd = rimImg.data;
+  for (let i = 0; i < GW * GH; i++) {
+    const a = ARRIVE[i], d = ft - a;
+    const m = clamp(d / 2.5, 0, 1), rim = d > -0.6 && d < 1.8 ? 1 - Math.abs(d - 0.6) / 1.2 : 0;
+    md[i * 4] = md[i * 4 + 1] = md[i * 4 + 2] = 255; md[i * 4 + 3] = m * 255;
+    rd[i * 4] = 200; rd[i * 4 + 1] = 240; rd[i * 4 + 2] = 255; rd[i * 4 + 3] = clamp(rim, 0, 1) * 255;
+  }
+  maskSmall.getContext('2d').putImageData(maskImg, 0, 0);
+  rimSmall.getContext('2d').putImageData(rimImg, 0, 0);
+  const g = frostLayer.getContext('2d');
+  g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, W, H);
+  g.drawImage(frostTex, 0, 0);
+  g.globalCompositeOperation = 'destination-in'; g.imageSmoothingEnabled = true; g.drawImage(maskSmall, 0, 0, W, H);
+  g.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = strength; ctx.drawImage(frostLayer, 0, 0);
+  ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = strength * 0.9; ctx.drawImage(rimSmall, 0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+}
+function drawSparkles(ft, t, strength = 1) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (const s of SPARKS) {
+    const i = Math.floor(s.y / CELL) * GW + Math.floor(s.x / CELL);
+    if (ft < ARRIVE[i] + 1) continue;
+    const a = Math.max(0, Math.sin(t * s.f * TAU + s.ph)) ** 6 * strength;
+    if (a < 0.05) continue;
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.beginPath(); ctx.moveTo(s.x - s.s, s.y); ctx.lineTo(s.x, s.y - s.s * 0.35); ctx.lineTo(s.x + s.s, s.y); ctx.lineTo(s.x, s.y + s.s * 0.35); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(s.x, s.y - s.s); ctx.lineTo(s.x + s.s * 0.35, s.y); ctx.lineTo(s.x, s.y + s.s); ctx.lineTo(s.x - s.s * 0.35, s.y); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- vapour from under the door
+const VAPOUR = (() => { const r = rng(13), out = []; for (let i = 0; i < 70; i++) out.push({ t0: r() * 7, life: 5 + r() * 4, x0: DB.x + 10 + r() * (DB.w - 20), vx: (r() - 0.5) * 60, vy: -(25 + r() * 40), s: 40 + r() * 70, ph: r() * TAU }); return out; })();
+function drawVapour(t, strength, colour = '200,230,255') {
+  ctx.save(); clipTo(ctx, [SIDES, WALL_DOWN]); ctx.globalCompositeOperation = 'lighter';
+  for (const v of VAPOUR) {
+    const u = mod(t - v.t0, v.life) / v.life, age = u * v.life;
+    const x = v.x0 + v.vx * age + Math.sin(t * 0.7 + v.ph) * 15, y = DB.y + DB.h - 6 + v.vy * age;
+    const a = Math.sin(u * Math.PI) * 0.22 * strength, s = v.s * (0.6 + u);
+    const gr = ctx.createRadialGradient(x, y, 0, x, y, s);
+    gr.addColorStop(0, `rgba(${colour},${a})`); gr.addColorStop(1, `rgba(${colour},0)`);
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, s, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- text helpers
+const MONO = '"Share Tech Mono", monospace', OSW = '"Oswald", sans-serif', GOTH = '"Pirata One", serif';
+function text(str, x, y, size, font, colour, align = 'left', weight = '') {
+  ctx.font = `${weight} ${size}px ${font}`; ctx.fillStyle = colour; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(str, x, y);
+}
+function fitText(str, x, y, maxW, size, font, colour, align = 'left', weight = '') {
+  ctx.font = `${weight} ${size}px ${font}`;
+  const w = ctx.measureText(str).width; if (w > maxW) size *= maxW / w;
+  text(str, x, y, size, font, colour, align, weight);
+}
+function hazardStripes(g, x, y, w, h, t, a = '#ffb000', b = '#111', period = 40, speed = 0) {
+  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+  g.fillStyle = b; g.fillRect(x, y, w, h); g.fillStyle = a;
+  const off = mod(t * speed, period * 2);
+  for (let sx = x - h - period * 2 + off; sx < x + w + h; sx += period * 2) { g.beginPath(); g.moveTo(sx, y + h); g.lineTo(sx + h, y); g.lineTo(sx + h + period, y); g.lineTo(sx + period, y + h); g.closePath(); g.fill(); }
+  g.restore();
+}
+const ALERTS = [
+  'CRYO WING STABILITY AT 12%', 'HARLEY QUINN SPOTTED IN WARD J', 'PATIENT 0801 UNACCOUNTED FOR — CELL BLOCK C',
+  'INTENSIVE TREATMENT: LOCKDOWN IN EFFECT', 'BOTANICAL GARDENS QUARANTINED — AIRBORNE TOXIN', 'VISITING HOURS SUSPENDED UNTIL FURTHER NOTICE',
+  'MEDICAL WING: FEAR TOXIN EXPOSURE — 3 STAFF', 'DR. QUINZEL BADGE ACCESS REVOKED', 'GENERATOR OUTPUT 47% — BACKUP POWER ENGAGED', 'ALL PERSONNEL REPORT TO SECURITY CHECKPOINT',
+];
+function ticker(t, y, size, colour, speed, items = ALERTS, sep = '   ◆   ') {
+  // one endless line across the wall, wrapping seamlessly
+  ctx.font = `${size}px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = colour;
+  const line = items.join(sep) + sep;
+  const lw = ctx.measureText(line).width;
+  const off = mod(t * speed, lw);
+  for (let x = WB.x - off; x < WB.x + WB.w; x += lw) ctx.fillText(line, x, y);
+}
+function scan(t) { return 0.85 + 0.15 * Math.sin(t * 60); }   // subtle CRT-style flicker
+
+// ---------------------------------------------------------------- door readout (used by several scenes)
+function doorPanel(lines, t, colour = '#8fd3ff', glow = 'rgba(80,160,255,0.25)', blink = false) {
+  ctx.save(); clipTo(ctx, [DOOR]);
+  ctx.fillStyle = '#04070c'; ctx.fillRect(DB.x, DB.y, DB.w, DB.h);
+  const gr = ctx.createLinearGradient(0, DB.y, 0, DB.y + DB.h); gr.addColorStop(0, glow); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gr; ctx.fillRect(DB.x, DB.y, DB.w, DB.h);
+  // porthole
+  const px = DOOR_CX, py = DB.y + 62;
+  ctx.strokeStyle = colour; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, 38, 0, TAU); ctx.stroke();
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(px, py, 34, 0, TAU); ctx.fill();
+  ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(px, py, 29, 0, TAU); ctx.stroke();
+  // text block: each line sits below the previous by half of both heights
+  let y = DB.y + 112, prev = 0;
+  for (const l of lines) {
+    const size = l.size || 22;
+    y += (prev + size) * 0.62; prev = size;
+    const show = !(l.blink && blink && Math.floor(t * 3) % 2);
+    if (show && l.s) fitText(l.s, DOOR_CX, y, DB.w - 16, size, l.font || MONO, l.colour || colour, 'center', l.weight || '');
+  }
+  // scanlines
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; for (let sy = DB.y; sy < DB.y + DB.h; sy += 4) ctx.fillRect(DB.x, sy, DB.w, 2);
+  ctx.restore();
+}
+function frameBand(t, colour = '#ffb000', speed = 0, dim = 1) {
+  ctx.save(); clipTo(ctx, [FRAME], [DOOR]); ctx.globalAlpha = dim;
+  hazardStripes(ctx, FB.x, FB.y, FB.w, FB.h, t, colour, '#0a0a0a', 36, speed);
+  ctx.restore();
+}
+function wallHeader(title, sub, colour) {
+  text(title, WB.x + 40, WB.y + 62, 78, GOTH, colour, 'left');
+  if (sub) text(sub, WB.x + 44, WB.y + 122, 28, OSW, colour, 'left', '500');
+}
+
+// ---------------------------------------------------------------- scenes
+const SCENES = [];
+function scene(name, len, fn) { const t0 = SCENES.length ? SCENES[SCENES.length - 1].t0 + SCENES[SCENES.length - 1].len : 0; SCENES.push({ name, t0, len, fn }); }
+
+// A — status board: the wing's status, the alert feed, cell 07 nominal. 40 s
+scene('status board', 40, (lt, t) => {
+  const amber = '#ffb000', cyan = '#8fd3ff';
+  ctx.save(); clipTo(ctx, [WALL]);
+  wallHeader('ARKHAM ASYLUM', 'INTENSIVE TREATMENT  ·  CRYO WING  ·  SUBLEVEL 3', amber);
+  const stab = 12 + 3 * Math.sin(lt * 0.4);
+  const rows = [['CRYO WING STABILITY', `${stab.toFixed(0)}%`, '#ff3b3b'], ['CELL 07 CORE TEMP', `-196.${Math.floor(mod(lt * 7, 10))} °C`, cyan], ['COOLANT PRESSURE', `${(3.1 + 0.2 * Math.sin(lt)).toFixed(2)} MPa`, cyan], ['PATIENTS IN WING', '14  (1 UNACCOUNTED)', amber], ['WARD J', 'SEARCH IN PROGRESS', '#ff3b3b']];
+  rows.forEach((rw, i) => { const y = WB.y + 158 + i * 29; text(rw[0], WB.x + 60, y, 24, MONO, '#9aa', 'left'); text(rw[1], WB.x + 620, y, 24, MONO, rw[2], 'left'); });
+  // right side: a clock and an alert count
+  text('23:' + String(Math.floor(mod(lt * 2, 60))).padStart(2, '0') + ':' + String(Math.floor(mod(lt * 60, 60))).padStart(2, '0'), WB.x + WB.w - 60, WB.y + 70, 56, MONO, cyan, 'right');
+  text('ACTIVE ALERTS  ' + (7 + Math.floor(mod(lt / 9, 3))), WB.x + WB.w - 60, WB.y + 125, 26, OSW, '#ff3b3b', 'right', '700');
+  ctx.fillStyle = 'rgba(255,176,0,0.9)'; ctx.fillRect(WB.x, WB.y + WB.h - 60, WB.w, 2);
+  ticker(lt, WB.y + WB.h - 30, 30, amber, 160);
+  ctx.fillStyle = `rgba(0,0,0,${0.12 * (1 - scan(t))})`; ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+  doorPanel([{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'CONTAINMENT', size: 20 }, { s: 'NOMINAL', size: 24, colour: '#5fe0a0' }, { s: '', size: 10 }, { s: '-196 °C', size: 24 }, { s: 'PATIENT 0455', size: 18 }, { s: 'DO NOT OPEN', size: 20, colour: '#ffb000' }], lt);
+  frameBand(lt, '#ffb000', 0, 0.55);
+  ctx.save(); clipTo(ctx, [SIDES], [FRAME]); ctx.fillStyle = 'rgba(40,70,110,0.35)'; ctx.fillRect(SB.x, SB.y, SB.w, SB.h); ctx.restore();
+});
+
+// B — containment failure, then the frost. 125 s
+scene('containment failure', 125, (lt, t) => {
+  const alert = lt < 14 ? 1 : lt < 20 ? 1 - (lt - 14) / 6 : 0;         // the alarm phase, fading out as the frost takes over
+  const ft = lt;                                                         // frost clock (arrivals start at 12 s)
+  const frozen = smooth((ft - 95) / 10);
+  // wall
+  ctx.save(); clipTo(ctx, [WALL]);
+  if (alert > 0 || lt < 60) {
+    const red = '#ff3b3b';
+    const flash = alert * (0.5 + 0.5 * Math.sin(lt * 9));
+    ctx.fillStyle = `rgba(120,0,0,${0.35 * flash})`; ctx.fillRect(0, 0, W, H);
+    wallHeader('CONTAINMENT FAILURE', 'CRYO CELL 07  ·  SUBLEVEL 3  ·  EVACUATE THE WING', red);
+    const stab = Math.max(0, 12 - lt * 0.25);
+    text('STABILITY', WB.x + 60, WB.y + 172, 28, MONO, '#9aa'); text(`${stab.toFixed(1)}%`, WB.x + 300, WB.y + 172, 40, MONO, red);
+    const temp = -196 + Math.min(lt, 60) * 1.6 * (lt < 14 ? 1 : 0.6);
+    text('CORE TEMP', WB.x + 60, WB.y + 216, 28, MONO, '#9aa'); text(`${temp.toFixed(1)} °C`, WB.x + 300, WB.y + 216, 40, MONO, red);
+    text('COOLANT', WB.x + 60, WB.y + 260, 28, MONO, '#9aa'); text(lt < 10 ? 'VENTING' : 'LOST', WB.x + 300, WB.y + 260, 40, MONO, red);
+    hazardStripes(ctx, WB.x, WB.y + WB.h - 66, WB.w, 12, lt, red, '#111', 40, 120);
+    ticker(lt, WB.y + WB.h - 32, 30, red, 220, ['CONTAINMENT FAILURE — CRYO CELL 07', 'EVACUATE SUBLEVEL 3', 'CRYO WING STABILITY CRITICAL', 'THERMAL BREACH IN PROGRESS']);
+    text('⚠', WB.x + WB.w - 120, WB.y + 90, 120, OSW, red, 'center');
+  }
+  ctx.restore();
+  // door and frame
+  const doorLines = lt < 20
+    ? [{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'CONTAINMENT', size: 20, colour: '#ff3b3b' }, { s: 'FAILURE', size: 28, colour: '#ff3b3b', blink: true }, { s: '', size: 10 }, { s: `${(-196 + lt * 1.6).toFixed(0)} °C`, size: 24 }, { s: 'SEAL BREACH', size: 18, colour: '#ff3b3b', blink: true }]
+    : [{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'CONTAINMENT', size: 20, colour: '#ff3b3b' }, { s: 'LOST', size: 28, colour: '#ff3b3b' }, { s: '', size: 10 }, { s: 'NO SIGNAL', size: 22, colour: '#557' }];
+  doorPanel(doorLines, lt, lt < 20 ? '#ff8080' : '#8fd3ff', lt < 20 ? `rgba(255,40,40,${0.25 + 0.2 * Math.sin(lt * 9)})` : 'rgba(80,160,255,0.25)', true);
+  frameBand(lt, alert > 0 ? '#ff3b3b' : '#ffb000', alert > 0 ? 90 : 0, alert > 0 ? 1 : 0.5);
+  // light leaking round the door seam during the alarm
+  if (alert > 0) {
+    ctx.save(); clipTo(ctx, [FRAME], [DOOR]); ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255,120,80,${0.8 * alert * (0.6 + 0.4 * Math.sin(lt * 23))})`; ctx.lineWidth = 14; pathOf(ctx, DOOR); ctx.stroke(); ctx.restore();
+  }
+  // sides: red wash in the alarm, then dark cold blue
+  ctx.save(); clipTo(ctx, [SIDES], [FRAME]);
+  ctx.fillStyle = `rgba(${alert > 0 ? '150,10,10' : '30,60,100'},${alert > 0 ? 0.3 + 0.3 * Math.sin(lt * 9) : 0.3})`; ctx.fillRect(SB.x, SB.y, SB.w, SB.h);
+  ctx.restore();
+  // frost and vapour
+  if (ft > 11) {
+    drawVapour(t, smooth((ft - 11) / 4) * (1 - frozen * 0.5));
+    drawFrost(ft);
+    drawSparkles(ft, t, 0.6 + 0.4 * frozen);
+  }
+  if (frozen > 0) {
+    ctx.save(); ctx.globalAlpha = frozen; clipTo(ctx, [WALL]);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(WB.x, WB.y + 20, WB.w, 120);
+    text('CRYO WING LOST — CELL 07 OPEN — PATIENT 0455 AT LARGE', WB.x + WB.w / 2, WB.y + 80, 44, OSW, '#dff4ff', 'center', '700');
+    ctx.restore();
+  }
+  // thaw to black at the end so the loop can start again
+  const out = smooth((lt - 120) / 4);
+  if (out > 0) { ctx.fillStyle = `rgba(0,0,0,${out})`; ctx.fillRect(0, 0, W, H); }
+});
+
+// C — lockdown: a red beacon sweeping the wall, chevrons, scanning the door. 60 s
+scene('lockdown', 60, (lt, t) => {
+  const red = '#ff3b3b';
+  ctx.save(); clipTo(ctx, [WALL]);
+  ctx.fillStyle = '#060000'; ctx.fillRect(0, 0, W, H);
+  // rotating beacon: a bright band sweeping left to right every 2.4 s, with a softer one going back
+  for (const [period, dir, a] of [[2.4, 1, 0.5], [3.7, -1, 0.3]]) {
+    const u = mod(lt / period, 1), x = dir > 0 ? WB.x + u * (WB.w + 600) - 300 : WB.x + WB.w - u * (WB.w + 600) + 300;
+    const gr = ctx.createLinearGradient(x - 300, 0, x + 300, 0);
+    gr.addColorStop(0, 'rgba(255,0,0,0)'); gr.addColorStop(0.5, `rgba(255,30,30,${a})`); gr.addColorStop(1, 'rgba(255,0,0,0)');
+    ctx.fillStyle = gr; ctx.fillRect(x - 300, WB.y, 600, WB.h);
+  }
+  hazardStripes(ctx, WB.x, WB.y, WB.w, 26, lt, red, '#0a0000', 48, 90);
+  hazardStripes(ctx, WB.x, WB.y + WB.h - 26, WB.w, 26, lt, red, '#0a0000', 48, -90);
+  const on = Math.floor(lt * 1.5) % 3 !== 2;
+  if (on) fitText('LOCKDOWN IN EFFECT', WB.x + WB.w / 2, WB.y + 120, WB.w - 200, 150, OSW, red, 'center', '700');
+  const line = ALERTS[Math.floor(lt / 5) % ALERTS.length];
+  const fade = Math.min(1, (mod(lt, 5)) / 0.4, (5 - mod(lt, 5)) / 0.6);
+  ctx.globalAlpha = fade; fitText(line, WB.x + WB.w / 2, WB.y + 240, WB.w - 240, 50, MONO, '#ffd0d0', 'center'); ctx.globalAlpha = 1;
+  text('REMAIN IN YOUR CELLS  ·  SECURITY RESPONSE TEAM DISPATCHED', WB.x + WB.w / 2, WB.y + 300, 28, OSW, '#ff9c9c', 'center', '500');
+  ctx.restore();
+  doorPanel([{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'LOCKDOWN', size: 26, colour: red, blink: true }, { s: 'SEALED', size: 24, colour: '#ffb000' }, { s: '', size: 10 }, { s: 'SCAN', size: 18 }, { s: `${String(Math.floor(mod(lt * 37, 10000))).padStart(4, '0')}`, size: 24 }], lt, '#ff8080', `rgba(255,40,40,${0.2 + 0.15 * Math.sin(lt * 9)})`, true);
+  // scanning line down the door
+  ctx.save(); clipTo(ctx, [DOOR]); ctx.globalCompositeOperation = 'lighter';
+  const sy = DB.y + mod(lt * 180, DB.h);
+  const gr = ctx.createLinearGradient(0, sy - 40, 0, sy + 4); gr.addColorStop(0, 'rgba(255,60,60,0)'); gr.addColorStop(1, 'rgba(255,80,80,0.9)');
+  ctx.fillStyle = gr; ctx.fillRect(DB.x, sy - 40, DB.w, 44); ctx.restore();
+  frameBand(lt, red, 60, 1);
+  ctx.save(); clipTo(ctx, [SIDES], [FRAME]); ctx.fillStyle = `rgba(150,10,10,${0.25 + 0.25 * Math.sin(lt * 2.6)})`; ctx.fillRect(SB.x, SB.y, SB.w, SB.h); ctx.restore();
+});
+
+// D — power failure: the board dies, emergency amber strips, a flickering return. 40 s
+scene('power failure', 40, (lt, t) => {
+  const r = rng(Math.floor(lt * 30));
+  const dyingStart = 0, dead = lt > 4 && lt < 30;
+  let power = lt < 4 ? (Math.sin(lt * 31) > -0.2 ? 1 : 0.1) * (1 - lt / 4) + 0.1 : dead ? 0 : smooth((lt - 30) / 3) * (Math.sin(lt * 47) > -0.6 ? 1 : 0.3);
+  if (lt > 36) power = 1;
+  // the board, dimmed by the power level
+  ctx.save(); clipTo(ctx, [WALL]); ctx.globalAlpha = power;
+  wallHeader('ARKHAM ASYLUM', 'INTENSIVE TREATMENT  ·  CRYO WING  ·  SUBLEVEL 3', '#ffb000');
+  text(lt < 4 ? 'MAIN POWER FAILING' : 'BACKUP POWER ENGAGED', WB.x + 60, WB.y + 200, 48, MONO, '#ff3b3b');
+  text(`GENERATOR OUTPUT ${Math.round(lt < 4 ? 100 - lt * 20 : 47 + 20 * smooth((lt - 30) / 6))}%`, WB.x + 60, WB.y + 260, 36, MONO, '#ffb000');
+  ticker(lt, WB.y + WB.h - 30, 30, '#ffb000', 160);
+  ctx.restore();
+  // emergency strips come up while the mains are down
+  const em = dead ? smooth((lt - 5) / 2) * (0.7 + 0.3 * Math.sin(lt * 1.3)) : 0;
+  if (em > 0) {
+    ctx.save(); clipTo(ctx, [WALL, SIDES]);
+    ctx.fillStyle = `rgba(255,140,0,${0.9 * em})`;
+    ctx.fillRect(WB.x, WB.y + 8, WB.w, 10); ctx.fillRect(WB.x, WB.y + WB.h - 18, WB.w, 10);
+    for (let x = 60; x < WB.w; x += 260) { ctx.beginPath(); ctx.arc(WB.x + x, WB.y + WB.h / 2, 8, 0, TAU); ctx.fill(); const gr = ctx.createRadialGradient(WB.x + x, WB.y + WB.h / 2, 0, WB.x + x, WB.y + WB.h / 2, 140); gr.addColorStop(0, `rgba(255,140,0,${0.25 * em})`); gr.addColorStop(1, 'rgba(255,140,0,0)'); ctx.fillStyle = gr; ctx.fillRect(WB.x + x - 140, WB.y, 280, WB.h); ctx.fillStyle = `rgba(255,140,0,${0.9 * em})`; }
+    text('EMERGENCY LIGHTING  ·  GENERATOR OUTPUT 47%', WB.x + WB.w / 2, WB.y + WB.h / 2 + 40, 30, OSW, `rgba(255,170,60,${em})`, 'center', '500');
+    ctx.restore();
+  }
+  // door: dark with a blinking amber standby
+  doorPanel([{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: dead ? 'STANDBY' : 'REBOOT', size: 24, colour: '#ffb000', blink: true }, { s: '', size: 10 }, { s: dead ? 'BATTERY' : 'MAINS', size: 18 }, { s: dead ? `${Math.max(1, Math.round(100 - lt * 3))}%` : 'OK', size: 24, colour: dead ? '#ff3b3b' : '#5fe0a0' }], lt, dead ? '#705000' : '#8fd3ff', 'rgba(0,0,0,0)', true);
+  ctx.save(); clipTo(ctx, [DOOR]); ctx.fillStyle = `rgba(0,0,0,${dead ? 0.55 : 1 - power})`; ctx.fillRect(DB.x, DB.y, DB.w, DB.h); ctx.restore();
+  frameBand(lt, '#ffb000', 0, dead ? 0.15 : 0.55 * power);
+});
+
+// E — fear toxin: green gas pours out, biohazard on the door, the board goes sick. 55 s
+scene('fear toxin', 55, (lt, t) => {
+  const green = '#7dff5a', sick = '#b8ff9a';
+  const leak = smooth(lt / 8);
+  ctx.save(); clipTo(ctx, [WALL]);
+  ctx.fillStyle = `rgba(10,40,10,${0.5 * leak})`; ctx.fillRect(0, 0, W, H);
+  wallHeader('AIRBORNE TOXIN', 'MEDICAL WING  ·  FEAR TOXIN EXPOSURE  ·  SEAL ALL VENTS', green);
+  text('CONCENTRATION', WB.x + 60, WB.y + 190, 30, MONO, '#9aa'); text(`${Math.min(999, Math.round(lt * 14)).toString().padStart(3, '0')} PPM`, WB.x + 360, WB.y + 190, 44, MONO, green);
+  text('EXPOSED STAFF', WB.x + 60, WB.y + 240, 30, MONO, '#9aa'); text(`${3 + Math.floor(lt / 12)}`, WB.x + 360, WB.y + 240, 44, MONO, green);
+  text('RESPIRATORS', WB.x + 60, WB.y + 290, 30, MONO, '#9aa'); text('MANDATORY', WB.x + 360, WB.y + 290, 44, MONO, '#ffb000');
+  // biohazard mark on the right of the wall
+  biohazard(WB.x + WB.w - 220, WB.y + 180, 110, green, 0.9);
+  ticker(lt, WB.y + WB.h - 30, 30, green, 150, ['BOTANICAL GARDENS QUARANTINED — AIRBORNE TOXIN', 'MEDICAL WING: FEAR TOXIN EXPOSURE', 'DR. CRANE IS NOT IN HIS CELL', 'DO NOT BREATHE THE GREEN AIR']);
+  // the lettering "breathes" as the toxin takes hold
+  ctx.fillStyle = `rgba(60,255,60,${0.08 * leak * (0.5 + 0.5 * Math.sin(lt * 2))})`; ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+  doorPanel([{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'AIR QUALITY', size: 18 }, { s: 'HAZARD', size: 28, colour: green, blink: true }, { s: '', size: 10 }, { s: 'VENT OPEN', size: 20, colour: '#ffb000' }], lt, sick, 'rgba(60,200,60,0.25)', true);
+  ctx.save(); clipTo(ctx, [DOOR]); biohazard(DOOR_CX, DB.y + DB.h - 80, 42, green, 0.9); ctx.restore();
+  frameBand(lt, green, 25, 0.8);
+  ctx.save(); clipTo(ctx, [SIDES], [FRAME]); ctx.fillStyle = `rgba(20,80,20,${0.3 + 0.15 * Math.sin(lt * 1.7)})`; ctx.fillRect(SB.x, SB.y, SB.w, SB.h); ctx.restore();
+  drawVapour(t, leak * 1.6, '120,255,90');
+  const out = smooth((lt - 51) / 4);
+  if (out > 0) { ctx.fillStyle = `rgba(0,0,0,${out})`; ctx.fillRect(0, 0, W, H); }
+});
+function biohazard(x, y, r, colour, a) {
+  ctx.save(); ctx.translate(x, y); ctx.globalAlpha = a; ctx.strokeStyle = colour; ctx.fillStyle = colour; ctx.lineWidth = r * 0.13;
+  for (let k = 0; k < 3; k++) { const ang = -Math.PI / 2 + k * TAU / 3; ctx.beginPath(); ctx.arc(Math.cos(ang) * r * 0.42, Math.sin(ang) * r * 0.42, r * 0.5, 0, TAU); ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.22, 0, TAU); ctx.stroke();
+  ctx.lineWidth = r * 0.2; for (let k = 0; k < 3; k++) { const ang = Math.PI / 2 + k * TAU / 3; ctx.beginPath(); ctx.moveTo(Math.cos(ang) * r * 0.1, Math.sin(ang) * r * 0.1); ctx.lineTo(Math.cos(ang) * r * 0.75, Math.sin(ang) * r * 0.75); ctx.stroke(); }
+  ctx.restore();
+}
+const TOTAL = SCENES.reduce((a, s) => a + s.len, 0);
+if (TOTAL !== DURATION) console.warn('scene lengths add up to', TOTAL, 'not', DURATION);
+
+// ---------------------------------------------------------------- frame
+function renderAt(t) {
+  t = mod(t, DURATION);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const sc = SCENES.find(s => t >= s.t0 && t < s.t0 + s.len) || SCENES[0];
+  const lt = t - sc.t0;
+  sc.fn(lt, t);
+  // short fades between scenes
+  const env = Math.min(1, lt / 1.2, (sc.len - lt) / 1.2);
+  if (env < 1) { ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = `rgba(0,0,0,${1 - clamp(env, 0, 1)})`; ctx.fillRect(0, 0, W, H); }
+  // never light anything outside the mapped shapes
+  ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = '#fff';
+  ctx.beginPath(); for (const poly of [DOOR, FRAME, SIDES, WALL]) { poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); } ctx.fill('nonzero');
+  ctx.globalCompositeOperation = 'destination-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+  return sc.name;
+}
+window.renderAt = renderAt;
+let fontsReady = false;
+Promise.all(['24px "Share Tech Mono"', '700 24px "Oswald"', '500 24px "Oswald"', '24px "Pirata One"'].map(f => document.fonts.load(f))).then(() => { fontsReady = true; }).catch(() => { fontsReady = true; });
+window.assetsReady = () => fontsReady;
+
+// ---------------------------------------------------------------- preview loop
+if (!/[?&]frame=1/.test(location.search)) {
+  const play = document.getElementById('play'), scrub = document.getElementById('scrub'), time = document.getElementById('time'), sceneEl = document.getElementById('scene');
+  let playing = true, start = performance.now(), base = 0;
+  const cur = () => mod(base + (playing ? (performance.now() - start) / 1000 : 0), DURATION);
+  play.onclick = () => { if (playing) base = cur(); else start = performance.now(); playing = !playing; play.textContent = playing ? 'pause' : 'play'; };
+  scrub.oninput = () => { base = Number(scrub.value); start = performance.now(); };
+  (function loop() { const t = cur(); const name = renderAt(t); time.textContent = t.toFixed(1) + ' s'; sceneEl.textContent = name; if (document.activeElement !== scrub) scrub.value = t; requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>

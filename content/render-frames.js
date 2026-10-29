@@ -16,7 +16,7 @@ const fs = require('fs'); const { execSync } = require('child_process');
   await page.waitForFunction(() => !window.assetsReady || window.assetsReady(), null, { timeout: 20000 }).catch(() => console.log('assets not ready, rendering anyway'));
   const { DURATION, FPS } = await page.evaluate(() => ({ DURATION: window.DURATION, FPS: window.FPS }));
   const dir = '/tmp/frames-' + path.basename(outMp4, '.mp4'); fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir);   // one folder per output, so parallel renders cannot collide
-  const times = previewOnly ? [3, 7, 12.5, 17, 21, 25] : Array.from({ length: DURATION * FPS }, (_, i) => i / FPS);
+  const times = previewOnly ? (process.env.PREVIEW_TIMES ? process.env.PREVIEW_TIMES.split(',').map(Number) : [3, 7, 12.5, 17, 21, 25]) : Array.from({ length: DURATION * FPS }, (_, i) => i / FPS);   // PREVIEW_TIMES=5,30,80 picks the preview frames
   let n = 0;
   for (const t of times) {
     const data = await page.evaluate(t => { renderAt(t); return document.getElementById('c').toDataURL('image/png').slice(22); }, t);
