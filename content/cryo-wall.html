@@ -80,6 +80,35 @@ const REGION = new Uint8Array(GW * GH);
 }
 const FROST_END = 108;   // everything is covered by then
 
+// Soft edges: the walls are red brick under coloured light and must not read as lit rectangles, so frost,
+// washes and vapour fade out before the open edges of the side walls and the wall (ragged, noise-driven).
+// The door and the frame are real objects and keep hard edges. Edges where the sides meet the wall stay open.
+function segDist(a, b, x, y) { const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy; let t = ((x - a.x) * dx + (y - a.y) * dy) / l2; t = clamp(t, 0, 1); const px = a.x + dx * t - x, py = a.y + dy * t - y; return Math.sqrt(px * px + py * py); }
+const EDGEA = new Float32Array(GW * GH);
+{
+  for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+    const x = gx * CELL + CELL / 2, y = gy * CELL + CELL / 2, i = gy * GW + gx, r = REGION[i];
+    if (!r) { EDGEA[i] = 0; continue; }
+    if (r === 1 || r === 2) { EDGEA[i] = 1; continue; }
+    let d = 1e9, F;
+    if (r === 3) { F = 75; d = Math.min(segDist(SIDES[1], SIDES[2], x, y), segDist(SIDES[2], SIDES[3], x, y), segDist(SIDES[3], SIDES[0], x, y)); }   // not the top edge (meets the wall)
+    else { F = 130; d = Math.min(segDist(WALL[0], WALL[1], x, y), segDist(WALL[1], WALL[2], x, y), segDist(WALL[3], WALL[0], x, y)); if (x < SB.x + 10 || x > SB.x + SB.w - 10) d = Math.min(d, segDist(WALL[2], WALL[3], x, y)); }
+    const n = 0.35 + 1.3 * fbm(x / 70 + 7, y / 70 + 3);
+    EDGEA[i] = Math.pow(smooth(d / (F * n)), 1.6);
+  }
+}
+const softMask = document.createElement('canvas'); softMask.width = GW; softMask.height = GH;
+{ const g = softMask.getContext('2d'), im = g.createImageData(GW, GH); for (let i = 0; i < GW * GH; i++) { im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = 255; im.data[i * 4 + 3] = EDGEA[i] * 255; } g.putImageData(im, 0, 0); }
+const softLayer = document.createElement('canvas'); softLayer.width = W; softLayer.height = H;
+// Draw with `fn(g)` into a layer, fade it at the open wall edges, then paint it with the given composite op and alpha.
+function withSoftEdges(fn, op = 'source-over', alpha = 1) {
+  const g = softLayer.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, W, H);
+  g.save(); fn(g); g.restore();
+  g.globalCompositeOperation = 'destination-in'; g.imageSmoothingEnabled = true; g.drawImage(softMask, 0, 0, W, H);
+  ctx.save(); ctx.globalCompositeOperation = op; ctx.globalAlpha = alpha; ctx.drawImage(softLayer, 0, 0); ctx.restore();
+}
+
 // ---------------------------------------------------------------- frost texture (static)
 const frostTex = document.createElement('canvas'); frostTex.width = W; frostTex.height = H;
 {
@@ -118,9 +147,10 @@ function drawFrost(ft, strength = 1) {
   const md = maskImg.data, rd = rimImg.data;
   for (let i = 0; i < GW * GH; i++) {
     const a = ARRIVE[i], d = ft - a;
-    const m = clamp(d / 2.5, 0, 1), rim = d > -0.6 && d < 1.8 ? 1 - Math.abs(d - 0.6) / 1.2 : 0;
+    const e = EDGEA[i];
+    const m = clamp(d / 2.5, 0, 1) * e, rim = (d > -0.6 && d < 1.8 ? 1 - Math.abs(d - 0.6) / 1.2 : 0) * e;
     md[i * 4] = md[i * 4 + 1] = md[i * 4 + 2] = 255; md[i * 4 + 3] = m * 255;
-    rd[i * 4] = 200; rd[i * 4 + 1] = 240; rd[i * 4 + 2] = 255; rd[i * 4 + 3] = clamp(rim, 0, 1) * 255;
+    rd[i * 4] = 170; rd[i * 4 + 1] = 230; rd[i * 4 + 2] = 255; rd[i * 4 + 3] = clamp(rim, 0, 1) * 255;
   }
   maskSmall.getContext('2d').putImageData(maskImg, 0, 0);
   rimSmall.getContext('2d').putImageData(rimImg, 0, 0);
@@ -137,7 +167,7 @@ function drawSparkles(ft, t, strength = 1) {
   ctx.save(); ctx.globalCompositeOperation = 'lighter';
   for (const s of SPARKS) {
     const i = Math.floor(s.y / CELL) * GW + Math.floor(s.x / CELL);
-    if (ft < ARRIVE[i] + 1) continue;
+    if (ft < ARRIVE[i] + 1 || EDGEA[i] < 0.5) continue;
     const a = Math.max(0, Math.sin(t * s.f * TAU + s.ph)) ** 6 * strength;
     if (a < 0.05) continue;
     ctx.fillStyle = `rgba(255,255,255,${a})`;
@@ -149,17 +179,18 @@ function drawSparkles(ft, t, strength = 1) {
 
 // ---------------------------------------------------------------- vapour from under the door
 const VAPOUR = (() => { const r = rng(13), out = []; for (let i = 0; i < 70; i++) out.push({ t0: r() * 7, life: 5 + r() * 4, x0: DB.x + 10 + r() * (DB.w - 20), vx: (r() - 0.5) * 60, vy: -(25 + r() * 40), s: 40 + r() * 70, ph: r() * TAU }); return out; })();
-function drawVapour(t, strength, colour = '200,230,255') {
-  ctx.save(); clipTo(ctx, [SIDES, WALL_DOWN]); ctx.globalCompositeOperation = 'lighter';
-  for (const v of VAPOUR) {
-    const u = mod(t - v.t0, v.life) / v.life, age = u * v.life;
-    const x = v.x0 + v.vx * age + Math.sin(t * 0.7 + v.ph) * 15, y = DB.y + DB.h - 6 + v.vy * age;
-    const a = Math.sin(u * Math.PI) * 0.22 * strength, s = v.s * (0.6 + u);
-    const gr = ctx.createRadialGradient(x, y, 0, x, y, s);
-    gr.addColorStop(0, `rgba(${colour},${a})`); gr.addColorStop(1, `rgba(${colour},0)`);
-    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x, y, s, 0, TAU); ctx.fill();
-  }
-  ctx.restore();
+function drawVapour(t, strength, colour = '150,215,255') {
+  withSoftEdges(g => {
+    clipTo(g, [SIDES, WALL_DOWN]);
+    for (const v of VAPOUR) {
+      const u = mod(t - v.t0, v.life) / v.life, age = u * v.life;
+      const x = v.x0 + v.vx * age + Math.sin(t * 0.7 + v.ph) * 15, y = DB.y + DB.h - 6 + v.vy * age;
+      const a = Math.sin(u * Math.PI) * 0.5 * Math.min(1, strength), s = v.s * (0.6 + u);
+      const gr = g.createRadialGradient(x, y, 0, x, y, s);
+      gr.addColorStop(0, `rgba(${colour},${a})`); gr.addColorStop(1, `rgba(${colour},0)`);
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, s, 0, TAU); g.fill();
+    }
+  }, 'source-over', Math.min(1, strength));
 }
 
 // ---------------------------------------------------------------- text helpers
@@ -197,9 +228,17 @@ function scan(t) { return 0.85 + 0.15 * Math.sin(t * 60); }   // subtle CRT-styl
 // ---------------------------------------------------------------- door readout (used by several scenes)
 function doorPanel(lines, t, colour = '#8fd3ff', glow = 'rgba(80,160,255,0.25)', blink = false) {
   ctx.save(); clipTo(ctx, [DOOR]);
-  ctx.fillStyle = '#04070c'; ctx.fillRect(DB.x, DB.y, DB.w, DB.h);
+  // a lit steel panel the whole way down (the real door must never go dark at the bottom)
+  const base = ctx.createLinearGradient(0, DB.y, 0, DB.y + DB.h); base.addColorStop(0, '#2a3d52'); base.addColorStop(0.5, '#1c2c3d'); base.addColorStop(1, '#223548');
+  ctx.fillStyle = base; ctx.fillRect(DB.x, DB.y, DB.w, DB.h);
   const gr = ctx.createLinearGradient(0, DB.y, 0, DB.y + DB.h); gr.addColorStop(0, glow); gr.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = gr; ctx.fillRect(DB.x, DB.y, DB.w, DB.h);
+  // lower grille and rivets
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  for (let gy = DB.y + DB.h - 96; gy < DB.y + DB.h - 18; gy += 11) ctx.fillRect(DB.x + 22, gy, DB.w - 44, 5);
+  ctx.fillStyle = colour;
+  for (const [rx, ry] of [[10, 10], [DB.w - 10, 10], [10, DB.h - 10], [DB.w - 10, DB.h - 10], [10, DB.h / 2], [DB.w - 10, DB.h / 2]]) { ctx.beginPath(); ctx.arc(DB.x + rx, DB.y + ry, 3.5, 0, TAU); ctx.fill(); }
+  ctx.strokeStyle = colour; ctx.lineWidth = 4; pathOf(ctx, DOOR); ctx.stroke();
   // porthole
   const px = DOOR_CX, py = DB.y + 62;
   ctx.strokeStyle = colour; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, 38, 0, TAU); ctx.stroke();
@@ -222,9 +261,25 @@ function frameBand(t, colour = '#ffb000', speed = 0, dim = 1) {
   hazardStripes(ctx, FB.x, FB.y, FB.w, FB.h, t, colour, '#0a0a0a', 36, speed);
   ctx.restore();
 }
+// The header and the readouts sit directly above the cell (centred on the door), the ticker runs the full width.
+const HX = DOOR_CX;
 function wallHeader(title, sub, colour) {
-  text(title, WB.x + 40, WB.y + 62, 78, GOTH, colour, 'left');
-  if (sub) text(sub, WB.x + 44, WB.y + 122, 28, OSW, colour, 'left', '500');
+  fitText(title, HX, WB.y + 60, 1100, 86, OSW, colour, 'center', '700');   // plain bold capitals: readable from across the room
+  if (sub) fitText(sub, HX, WB.y + 122, 1100, 28, OSW, colour, 'center', '500');
+}
+// The lockdown look for every board: one huge bold title, a subtitle, and one big readout line that
+// rotates through `lines` every 5 s. Everything is centred above the cell.
+function board(lt, title, sub, lines, colour, lineColour = '#ffffff', subColour = colour) {
+  fitText(title, HX, WB.y + 105, 1500, 150, OSW, colour, 'center', '700');
+  if (sub) fitText(sub, HX, WB.y + 205, 1500, 34, OSW, subColour, 'center', '500');
+  if (lines && lines.length) {
+    const line = lines[Math.floor(lt / 5) % lines.length];
+    const fade = Math.min(1, mod(lt, 5) / 0.4, (5 - mod(lt, 5)) / 0.6);
+    ctx.globalAlpha = fade; fitText(line, HX, WB.y + 265, 1500, 54, MONO, lineColour, 'center'); ctx.globalAlpha = 1;
+  }
+}
+function readout(label, value, y, colour, size = 24) {
+  text(label, HX - 16, y, size, MONO, '#dfe7ee', 'right'); text(value, HX + 16, y, size * 1.2, MONO, colour, 'left');
 }
 
 // ---------------------------------------------------------------- scenes
@@ -235,20 +290,17 @@ function scene(name, len, fn) { const t0 = SCENES.length ? SCENES[SCENES.length 
 scene('status board', 40, (lt, t) => {
   const amber = '#ffb000', cyan = '#8fd3ff';
   ctx.save(); clipTo(ctx, [WALL]);
-  wallHeader('ARKHAM ASYLUM', 'INTENSIVE TREATMENT  ·  CRYO WING  ·  SUBLEVEL 3', amber);
   const stab = 12 + 3 * Math.sin(lt * 0.4);
-  const rows = [['CRYO WING STABILITY', `${stab.toFixed(0)}%`, '#ff3b3b'], ['CELL 07 CORE TEMP', `-196.${Math.floor(mod(lt * 7, 10))} °C`, cyan], ['COOLANT PRESSURE', `${(3.1 + 0.2 * Math.sin(lt)).toFixed(2)} MPa`, cyan], ['PATIENTS IN WING', '14  (1 UNACCOUNTED)', amber], ['WARD J', 'SEARCH IN PROGRESS', '#ff3b3b']];
-  rows.forEach((rw, i) => { const y = WB.y + 158 + i * 29; text(rw[0], WB.x + 60, y, 24, MONO, '#9aa', 'left'); text(rw[1], WB.x + 620, y, 24, MONO, rw[2], 'left'); });
-  // right side: a clock and an alert count
-  text('23:' + String(Math.floor(mod(lt * 2, 60))).padStart(2, '0') + ':' + String(Math.floor(mod(lt * 60, 60))).padStart(2, '0'), WB.x + WB.w - 60, WB.y + 70, 56, MONO, cyan, 'right');
-  text('ACTIVE ALERTS  ' + (7 + Math.floor(mod(lt / 9, 3))), WB.x + WB.w - 60, WB.y + 125, 26, OSW, '#ff3b3b', 'right', '700');
+  board(lt, 'ARKHAM ASYLUM', 'INTENSIVE TREATMENT  ·  CRYO WING  ·  SUBLEVEL 3', [
+    `CRYO WING STABILITY  ${stab.toFixed(0)}%`, `CELL 07 CORE TEMP  -196.${Math.floor(mod(lt * 7, 10))} °C`, `COOLANT PRESSURE  ${(3.1 + 0.2 * Math.sin(lt)).toFixed(2)} MPa`,
+    'PATIENTS IN WING  14  ·  1 UNACCOUNTED', 'WARD J  ·  SEARCH IN PROGRESS', `ACTIVE ALERTS  ${7 + Math.floor(mod(lt / 9, 3))}`], amber, cyan);
   ctx.fillStyle = 'rgba(255,176,0,0.9)'; ctx.fillRect(WB.x, WB.y + WB.h - 60, WB.w, 2);
   ticker(lt, WB.y + WB.h - 30, 30, amber, 160);
   ctx.fillStyle = `rgba(0,0,0,${0.12 * (1 - scan(t))})`; ctx.fillRect(0, 0, W, H);
   ctx.restore();
   doorPanel([{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'CONTAINMENT', size: 20 }, { s: 'NOMINAL', size: 24, colour: '#5fe0a0' }, { s: '', size: 10 }, { s: '-196 °C', size: 24 }, { s: 'PATIENT 0455', size: 18 }, { s: 'DO NOT OPEN', size: 20, colour: '#ffb000' }], lt);
   frameBand(lt, '#ffb000', 0, 0.55);
-  ctx.save(); clipTo(ctx, [SIDES], [FRAME]); ctx.fillStyle = 'rgba(40,70,110,0.35)'; ctx.fillRect(SB.x, SB.y, SB.w, SB.h); ctx.restore();
+  withSoftEdges(g => { clipTo(g, [SIDES], [FRAME]); g.fillStyle = 'rgba(40,90,170,0.6)'; g.fillRect(SB.x, SB.y, SB.w, SB.h); });
 });
 
 // B — containment failure, then the frost. 125 s
@@ -261,16 +313,12 @@ scene('containment failure', 125, (lt, t) => {
   if (alert > 0 || lt < 60) {
     const red = '#ff3b3b';
     const flash = alert * (0.5 + 0.5 * Math.sin(lt * 9));
-    ctx.fillStyle = `rgba(120,0,0,${0.35 * flash})`; ctx.fillRect(0, 0, W, H);
-    wallHeader('CONTAINMENT FAILURE', 'CRYO CELL 07  ·  SUBLEVEL 3  ·  EVACUATE THE WING', red);
+    withSoftEdges(g => { clipTo(g, [WALL]); g.fillStyle = `rgba(200,0,0,${0.5 * flash})`; g.fillRect(0, 0, W, H); });
     const stab = Math.max(0, 12 - lt * 0.25);
-    text('STABILITY', WB.x + 60, WB.y + 172, 28, MONO, '#9aa'); text(`${stab.toFixed(1)}%`, WB.x + 300, WB.y + 172, 40, MONO, red);
     const temp = -196 + Math.min(lt, 60) * 1.6 * (lt < 14 ? 1 : 0.6);
-    text('CORE TEMP', WB.x + 60, WB.y + 216, 28, MONO, '#9aa'); text(`${temp.toFixed(1)} °C`, WB.x + 300, WB.y + 216, 40, MONO, red);
-    text('COOLANT', WB.x + 60, WB.y + 260, 28, MONO, '#9aa'); text(lt < 10 ? 'VENTING' : 'LOST', WB.x + 300, WB.y + 260, 40, MONO, red);
+    board(lt, 'CONTAINMENT FAILURE', 'CRYO CELL 07  ·  SUBLEVEL 3  ·  EVACUATE THE WING', [`STABILITY  ${stab.toFixed(1)}%`, `CORE TEMP  ${temp.toFixed(1)} °C`, `COOLANT  ${lt < 10 ? 'VENTING' : 'LOST'}`], red, '#ffd0d0');
     hazardStripes(ctx, WB.x, WB.y + WB.h - 66, WB.w, 12, lt, red, '#111', 40, 120);
     ticker(lt, WB.y + WB.h - 32, 30, red, 220, ['CONTAINMENT FAILURE — CRYO CELL 07', 'EVACUATE SUBLEVEL 3', 'CRYO WING STABILITY CRITICAL', 'THERMAL BREACH IN PROGRESS']);
-    text('⚠', WB.x + WB.w - 120, WB.y + 90, 120, OSW, red, 'center');
   }
   ctx.restore();
   // door and frame
@@ -285,9 +333,7 @@ scene('containment failure', 125, (lt, t) => {
     ctx.strokeStyle = `rgba(255,120,80,${0.8 * alert * (0.6 + 0.4 * Math.sin(lt * 23))})`; ctx.lineWidth = 14; pathOf(ctx, DOOR); ctx.stroke(); ctx.restore();
   }
   // sides: red wash in the alarm, then dark cold blue
-  ctx.save(); clipTo(ctx, [SIDES], [FRAME]);
-  ctx.fillStyle = `rgba(${alert > 0 ? '150,10,10' : '30,60,100'},${alert > 0 ? 0.3 + 0.3 * Math.sin(lt * 9) : 0.3})`; ctx.fillRect(SB.x, SB.y, SB.w, SB.h);
-  ctx.restore();
+  withSoftEdges(g => { clipTo(g, [SIDES], [FRAME]); g.fillStyle = `rgba(${alert > 0 ? '220,10,10' : '30,80,170'},${alert > 0 ? 0.45 + 0.35 * Math.sin(lt * 9) : 0.5})`; g.fillRect(SB.x, SB.y, SB.w, SB.h); });
   // frost and vapour
   if (ft > 11) {
     drawVapour(t, smooth((ft - 11) / 4) * (1 - frozen * 0.5));
@@ -295,9 +341,13 @@ scene('containment failure', 125, (lt, t) => {
     drawSparkles(ft, t, 0.6 + 0.4 * frozen);
   }
   if (frozen > 0) {
+    withSoftEdges(g => { clipTo(g, [WALL]); const gr = g.createLinearGradient(0, WB.y, 0, WB.y + 200); gr.addColorStop(0, 'rgba(0,10,25,0.85)'); gr.addColorStop(0.75, 'rgba(0,10,25,0.75)'); gr.addColorStop(1, 'rgba(0,10,25,0)'); g.fillStyle = gr; g.fillRect(WB.x, WB.y, WB.w, 200); }, 'source-over', frozen);
     ctx.save(); ctx.globalAlpha = frozen; clipTo(ctx, [WALL]);
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(WB.x, WB.y + 20, WB.w, 120);
-    text('CRYO WING LOST — CELL 07 OPEN — PATIENT 0455 AT LARGE', WB.x + WB.w / 2, WB.y + 80, 44, OSW, '#dff4ff', 'center', '700');
+    ctx.lineJoin = 'round'; ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(0,15,35,0.95)';
+    ctx.font = `700 110px ${OSW}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.strokeText('CRYO WING LOST', HX, WB.y + 70);
+    fitText('CRYO WING LOST', HX, WB.y + 70, 1500, 110, OSW, '#eaf8ff', 'center', '700');
+    ctx.lineWidth = 6; ctx.font = `500 44px ${OSW}`; ctx.strokeText('CELL 07 OPEN  ·  PATIENT 0455 AT LARGE', HX, WB.y + 140);
+    fitText('CELL 07 OPEN  ·  PATIENT 0455 AT LARGE', HX, WB.y + 140, 1500, 44, OSW, '#eaf8ff', 'center', '500');
     ctx.restore();
   }
   // thaw to black at the end so the loop can start again
@@ -308,23 +358,25 @@ scene('containment failure', 125, (lt, t) => {
 // C — lockdown: a red beacon sweeping the wall, chevrons, scanning the door. 60 s
 scene('lockdown', 60, (lt, t) => {
   const red = '#ff3b3b';
-  ctx.save(); clipTo(ctx, [WALL]);
-  ctx.fillStyle = '#060000'; ctx.fillRect(0, 0, W, H);
   // rotating beacon: a bright band sweeping left to right every 2.4 s, with a softer one going back
-  for (const [period, dir, a] of [[2.4, 1, 0.5], [3.7, -1, 0.3]]) {
-    const u = mod(lt / period, 1), x = dir > 0 ? WB.x + u * (WB.w + 600) - 300 : WB.x + WB.w - u * (WB.w + 600) + 300;
-    const gr = ctx.createLinearGradient(x - 300, 0, x + 300, 0);
-    gr.addColorStop(0, 'rgba(255,0,0,0)'); gr.addColorStop(0.5, `rgba(255,30,30,${a})`); gr.addColorStop(1, 'rgba(255,0,0,0)');
-    ctx.fillStyle = gr; ctx.fillRect(x - 300, WB.y, 600, WB.h);
-  }
+  withSoftEdges(g => {
+    clipTo(g, [WALL]);
+    for (const [period, dir, a] of [[2.4, 1, 0.7], [3.7, -1, 0.45]]) {
+      const u = mod(lt / period, 1), x = dir > 0 ? WB.x + u * (WB.w + 600) - 300 : WB.x + WB.w - u * (WB.w + 600) + 300;
+      const gr = g.createLinearGradient(x - 300, 0, x + 300, 0);
+      gr.addColorStop(0, 'rgba(255,0,0,0)'); gr.addColorStop(0.5, `rgba(255,20,20,${a})`); gr.addColorStop(1, 'rgba(255,0,0,0)');
+      g.fillStyle = gr; g.fillRect(x - 300, WB.y, 600, WB.h);
+    }
+  });
+  ctx.save(); clipTo(ctx, [WALL]);
   hazardStripes(ctx, WB.x, WB.y, WB.w, 26, lt, red, '#0a0000', 48, 90);
   hazardStripes(ctx, WB.x, WB.y + WB.h - 26, WB.w, 26, lt, red, '#0a0000', 48, -90);
   const on = Math.floor(lt * 1.5) % 3 !== 2;
-  if (on) fitText('LOCKDOWN IN EFFECT', WB.x + WB.w / 2, WB.y + 120, WB.w - 200, 150, OSW, red, 'center', '700');
+  if (on) fitText('LOCKDOWN IN EFFECT', HX, WB.y + 120, 1500, 150, OSW, red, 'center', '700');
   const line = ALERTS[Math.floor(lt / 5) % ALERTS.length];
   const fade = Math.min(1, (mod(lt, 5)) / 0.4, (5 - mod(lt, 5)) / 0.6);
-  ctx.globalAlpha = fade; fitText(line, WB.x + WB.w / 2, WB.y + 240, WB.w - 240, 50, MONO, '#ffd0d0', 'center'); ctx.globalAlpha = 1;
-  text('REMAIN IN YOUR CELLS  ·  SECURITY RESPONSE TEAM DISPATCHED', WB.x + WB.w / 2, WB.y + 300, 28, OSW, '#ff9c9c', 'center', '500');
+  ctx.globalAlpha = fade; fitText(line, HX, WB.y + 240, 1500, 50, MONO, '#ffd0d0', 'center'); ctx.globalAlpha = 1;
+  text('REMAIN IN YOUR CELLS  ·  SECURITY RESPONSE TEAM DISPATCHED', HX, WB.y + 300, 28, OSW, '#ff9c9c', 'center', '500');
   ctx.restore();
   doorPanel([{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'LOCKDOWN', size: 26, colour: red, blink: true }, { s: 'SEALED', size: 24, colour: '#ffb000' }, { s: '', size: 10 }, { s: 'SCAN', size: 18 }, { s: `${String(Math.floor(mod(lt * 37, 10000))).padStart(4, '0')}`, size: 24 }], lt, '#ff8080', `rgba(255,40,40,${0.2 + 0.15 * Math.sin(lt * 9)})`, true);
   // scanning line down the door
@@ -333,7 +385,7 @@ scene('lockdown', 60, (lt, t) => {
   const gr = ctx.createLinearGradient(0, sy - 40, 0, sy + 4); gr.addColorStop(0, 'rgba(255,60,60,0)'); gr.addColorStop(1, 'rgba(255,80,80,0.9)');
   ctx.fillStyle = gr; ctx.fillRect(DB.x, sy - 40, DB.w, 44); ctx.restore();
   frameBand(lt, red, 60, 1);
-  ctx.save(); clipTo(ctx, [SIDES], [FRAME]); ctx.fillStyle = `rgba(150,10,10,${0.25 + 0.25 * Math.sin(lt * 2.6)})`; ctx.fillRect(SB.x, SB.y, SB.w, SB.h); ctx.restore();
+  withSoftEdges(g => { clipTo(g, [SIDES], [FRAME]); g.fillStyle = `rgba(230,10,10,${0.4 + 0.3 * Math.sin(lt * 2.6)})`; g.fillRect(SB.x, SB.y, SB.w, SB.h); });
 });
 
 // D — power failure: the board dies, emergency amber strips, a flickering return. 40 s
@@ -344,19 +396,18 @@ scene('power failure', 40, (lt, t) => {
   if (lt > 36) power = 1;
   // the board, dimmed by the power level
   ctx.save(); clipTo(ctx, [WALL]); ctx.globalAlpha = power;
-  wallHeader('ARKHAM ASYLUM', 'INTENSIVE TREATMENT  ·  CRYO WING  ·  SUBLEVEL 3', '#ffb000');
-  text(lt < 4 ? 'MAIN POWER FAILING' : 'BACKUP POWER ENGAGED', WB.x + 60, WB.y + 200, 48, MONO, '#ff3b3b');
-  text(`GENERATOR OUTPUT ${Math.round(lt < 4 ? 100 - lt * 20 : 47 + 20 * smooth((lt - 30) / 6))}%`, WB.x + 60, WB.y + 260, 36, MONO, '#ffb000');
+  board(lt, lt < 4 ? 'MAIN POWER FAILING' : 'BACKUP POWER ENGAGED', 'INTENSIVE TREATMENT  ·  CRYO WING  ·  SUBLEVEL 3', [`GENERATOR OUTPUT ${Math.round(lt < 4 ? 100 - lt * 20 : 47 + 20 * smooth((lt - 30) / 6))}%`], lt < 4 ? '#ff3b3b' : '#ffb000', '#ffb000', '#ffb000');
   ticker(lt, WB.y + WB.h - 30, 30, '#ffb000', 160);
   ctx.restore();
   // emergency strips come up while the mains are down
   const em = dead ? smooth((lt - 5) / 2) * (0.7 + 0.3 * Math.sin(lt * 1.3)) : 0;
   if (em > 0) {
+    withSoftEdges(g => { clipTo(g, [WALL, SIDES]); for (let x = 60; x < WB.w; x += 260) { const gr = g.createRadialGradient(WB.x + x, WB.y + WB.h / 2, 0, WB.x + x, WB.y + WB.h / 2, 150); gr.addColorStop(0, `rgba(255,140,0,${0.45 * em})`); gr.addColorStop(1, 'rgba(255,140,0,0)'); g.fillStyle = gr; g.fillRect(WB.x + x - 150, WB.y, 300, WB.h); } });
     ctx.save(); clipTo(ctx, [WALL, SIDES]);
     ctx.fillStyle = `rgba(255,140,0,${0.9 * em})`;
     ctx.fillRect(WB.x, WB.y + 8, WB.w, 10); ctx.fillRect(WB.x, WB.y + WB.h - 18, WB.w, 10);
-    for (let x = 60; x < WB.w; x += 260) { ctx.beginPath(); ctx.arc(WB.x + x, WB.y + WB.h / 2, 8, 0, TAU); ctx.fill(); const gr = ctx.createRadialGradient(WB.x + x, WB.y + WB.h / 2, 0, WB.x + x, WB.y + WB.h / 2, 140); gr.addColorStop(0, `rgba(255,140,0,${0.25 * em})`); gr.addColorStop(1, 'rgba(255,140,0,0)'); ctx.fillStyle = gr; ctx.fillRect(WB.x + x - 140, WB.y, 280, WB.h); ctx.fillStyle = `rgba(255,140,0,${0.9 * em})`; }
-    text('EMERGENCY LIGHTING  ·  GENERATOR OUTPUT 47%', WB.x + WB.w / 2, WB.y + WB.h / 2 + 40, 30, OSW, `rgba(255,170,60,${em})`, 'center', '500');
+    for (let x = 60; x < WB.w; x += 260) { ctx.beginPath(); ctx.arc(WB.x + x, WB.y + WB.h / 2, 8, 0, TAU); ctx.fill(); }
+    text('EMERGENCY LIGHTING  ·  GENERATOR OUTPUT 47%', HX, WB.y + WB.h / 2 + 40, 30, OSW, `rgba(255,170,60,${em})`, 'center', '500');
     ctx.restore();
   }
   // door: dark with a blinking amber standby
@@ -369,23 +420,20 @@ scene('power failure', 40, (lt, t) => {
 scene('fear toxin', 55, (lt, t) => {
   const green = '#7dff5a', sick = '#b8ff9a';
   const leak = smooth(lt / 8);
+  withSoftEdges(g => { clipTo(g, [WALL]); g.fillStyle = `rgba(20,120,20,${0.55 * leak})`; g.fillRect(0, 0, W, H); });
   ctx.save(); clipTo(ctx, [WALL]);
-  ctx.fillStyle = `rgba(10,40,10,${0.5 * leak})`; ctx.fillRect(0, 0, W, H);
-  wallHeader('AIRBORNE TOXIN', 'MEDICAL WING  ·  FEAR TOXIN EXPOSURE  ·  SEAL ALL VENTS', green);
-  text('CONCENTRATION', WB.x + 60, WB.y + 190, 30, MONO, '#9aa'); text(`${Math.min(999, Math.round(lt * 14)).toString().padStart(3, '0')} PPM`, WB.x + 360, WB.y + 190, 44, MONO, green);
-  text('EXPOSED STAFF', WB.x + 60, WB.y + 240, 30, MONO, '#9aa'); text(`${3 + Math.floor(lt / 12)}`, WB.x + 360, WB.y + 240, 44, MONO, green);
-  text('RESPIRATORS', WB.x + 60, WB.y + 290, 30, MONO, '#9aa'); text('MANDATORY', WB.x + 360, WB.y + 290, 44, MONO, '#ffb000');
-  // biohazard mark on the right of the wall
-  biohazard(WB.x + WB.w - 220, WB.y + 180, 110, green, 0.9);
+  board(lt, 'AIRBORNE TOXIN', 'MEDICAL WING  ·  FEAR TOXIN EXPOSURE  ·  SEAL ALL VENTS', [`CONCENTRATION  ${Math.min(999, Math.round(lt * 14)).toString().padStart(3, '0')} PPM`, `EXPOSED STAFF  ${3 + Math.floor(lt / 12)}`, 'RESPIRATORS MANDATORY'], green, '#d8ffc8');
+  // biohazard marks out at the ends of the wall
+  biohazard(HX + 770, WB.y + 150, 95, green, 0.95); biohazard(HX - 770, WB.y + 150, 95, green, 0.95);
   ticker(lt, WB.y + WB.h - 30, 30, green, 150, ['BOTANICAL GARDENS QUARANTINED — AIRBORNE TOXIN', 'MEDICAL WING: FEAR TOXIN EXPOSURE', 'DR. CRANE IS NOT IN HIS CELL', 'DO NOT BREATHE THE GREEN AIR']);
   // the lettering "breathes" as the toxin takes hold
-  ctx.fillStyle = `rgba(60,255,60,${0.08 * leak * (0.5 + 0.5 * Math.sin(lt * 2))})`; ctx.fillRect(0, 0, W, H);
   ctx.restore();
+  withSoftEdges(g => { clipTo(g, [WALL]); g.fillStyle = `rgba(60,255,60,${0.12 * leak * (0.5 + 0.5 * Math.sin(lt * 2))})`; g.fillRect(0, 0, W, H); });
   doorPanel([{ s: 'CRYO CELL', size: 26, font: OSW, weight: '700' }, { s: '07', size: 64, font: OSW, weight: '700' }, { s: '', size: 10 }, { s: 'AIR QUALITY', size: 18 }, { s: 'HAZARD', size: 28, colour: green, blink: true }, { s: '', size: 10 }, { s: 'VENT OPEN', size: 20, colour: '#ffb000' }], lt, sick, 'rgba(60,200,60,0.25)', true);
   ctx.save(); clipTo(ctx, [DOOR]); biohazard(DOOR_CX, DB.y + DB.h - 80, 42, green, 0.9); ctx.restore();
   frameBand(lt, green, 25, 0.8);
-  ctx.save(); clipTo(ctx, [SIDES], [FRAME]); ctx.fillStyle = `rgba(20,80,20,${0.3 + 0.15 * Math.sin(lt * 1.7)})`; ctx.fillRect(SB.x, SB.y, SB.w, SB.h); ctx.restore();
-  drawVapour(t, leak * 1.6, '120,255,90');
+  withSoftEdges(g => { clipTo(g, [SIDES], [FRAME]); g.fillStyle = `rgba(30,170,30,${0.45 + 0.2 * Math.sin(lt * 1.7)})`; g.fillRect(SB.x, SB.y, SB.w, SB.h); });
+  drawVapour(t, leak * 1.0, '70,255,50');
   const out = smooth((lt - 51) / 4);
   if (out > 0) { ctx.fillStyle = `rgba(0,0,0,${out})`; ctx.fillRect(0, 0, W, H); }
 });
@@ -410,6 +458,10 @@ function renderAt(t) {
   // short fades between scenes
   const env = Math.min(1, lt / 1.2, (sc.len - lt) / 1.2);
   if (env < 1) { ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = `rgba(0,0,0,${1 - clamp(env, 0, 1)})`; ctx.fillRect(0, 0, W, H); }
+  // vivid pass: the walls are red brick under coloured light, so push saturation and contrast
+  const vivid = renderAt.vivid || (renderAt.vivid = Object.assign(document.createElement('canvas'), { width: W, height: H }));
+  const vg = vivid.getContext('2d'); vg.globalCompositeOperation = 'copy'; vg.drawImage(canvas, 0, 0);
+  ctx.globalCompositeOperation = 'copy'; ctx.filter = 'saturate(1.6) contrast(1.08)'; ctx.drawImage(vivid, 0, 0); ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
   // never light anything outside the mapped shapes
   ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = '#fff';
   ctx.beginPath(); for (const poly of [DOOR, FRAME, SIDES, WALL]) { poly.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); } ctx.fill('nonzero');
